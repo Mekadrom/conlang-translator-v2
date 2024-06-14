@@ -2,14 +2,14 @@ from collections import OrderedDict
 from datasets import load_dataset
 from positional_encodings.torch_encodings import PositionalEncoding2D
 from rotary_embedding_torch import RotaryEmbedding
-from modules import swiglu
-from modules.transformer import Decoder, Transformer
+from modules.swiglu import SwiGLU
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import argparse
 import codecs
 import math
+import modules.transformer as transformer
 import os
 import sacrebleu
 import time
@@ -17,7 +17,6 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
-import transformer
 import yaml
 import youtokentome
 
@@ -41,13 +40,13 @@ def init_transformer_weights(args, model, tie_embeddings=True):
 
     # Share weights between the embedding layers and the logit layer
 
-    if isinstance(model, Transformer):
+    if isinstance(model, transformer.Transformer):
         nn.init.normal_(model.encoder.embedding.weight, mean=0., std=args.d_model**-0.5)
         model.decoder.embedding.weight = model.encoder.embedding.weight
 
         if tie_embeddings:
             model.decoder.classifier.weight = model.decoder.embedding.weight
-    elif isinstance(model, Decoder):
+    elif isinstance(model, transformer.Decoder):
         if tie_embeddings:
             model.classifier.weight = model.embedding.weight
 
@@ -415,6 +414,7 @@ class YamlDict(dict):
 
 def load_yaml(file_path, ovr_args):
     file_path_dir = os.path.dirname(file_path)
+    print(f"loading configs from {file_path_dir}")
     with open(os.path.join(file_path_dir, 'default.yaml'), 'r') as default_config:
         with open(file_path, 'r') as f:
             y = yaml.safe_load(default_config)

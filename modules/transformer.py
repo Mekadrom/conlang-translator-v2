@@ -1,9 +1,10 @@
+from modules import utils
+
 import admin_torch
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import utils
 
 class Sum(nn.Module):
     def __init__(self):
@@ -11,18 +12,6 @@ class Sum(nn.Module):
 
     def forward(self, x, y):
         return x + y
-
-class SwiGLU(nn.Module):
-    def __init__(self, d_in):
-        super(SwiGLU, self).__init__()
-
-        self.cast = nn.Linear(d_in // 2, d_in)
-
-    def forward(self, x):
-        x, gate = x.chunk(2, dim=-1)
-        x = F.silu(gate) * x
-        x = self.cast(x)
-        return x
 
 class RMSNorm(nn.Module):
     def __init__(self, emb_dim, eps = 1e-5):
