@@ -1,5 +1,5 @@
 from criteria.labelsmooth import LabelSmoothedCE
-from dataloader import SequenceLoader
+from supreme_dataloader import SequenceLoader
 from modules import transformer
 from prettytable import PrettyTable
 from torch.utils.tensorboard import SummaryWriter
