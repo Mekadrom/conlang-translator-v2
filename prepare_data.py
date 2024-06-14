@@ -381,7 +381,21 @@ def train_tokenizers(vocab_size, output_dir):
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
 
+def prune_data(maxlen):
+    for datafile in glob.glob('data/train_*') + glob.glob('data/validation_*'):
+        with open(datafile, 'r') as f:
+            data = f.readlines()
+
+        with open(datafile, 'w') as f:
+            tokenizer = yttm.BPE(f'tokenizers/tokenizer_{datafile.split(".")[-1]}.model')
+
+            for line in data:
+                if len(tokenizer.encode(line.strip())) <= maxlen:
+                    f.write(line)
+
 if __name__ == '__main__':
     download_base_traindata()
 
     train_tokenizers(10000, 'tokenizers')
+
+    prune_data(maxlen=256)
