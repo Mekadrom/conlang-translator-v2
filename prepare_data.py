@@ -49,7 +49,7 @@ def download_base_traindata():
     # total # of languages represented: 34
 
     download_dataset("may-ohta/jparacrawl", "en", "ja", 'en-ja', manual_split=True, collation_fn=lambda example: { "translation": { "en": example["translation"]["en"], "ja": example["translation"]["ja"] } })
-    download_dataset("may-ohta/jparacrawl", "zh", "ja", 'zh-ja', manual_split=True, collation_fn=lambda example: { "translation": { "zh": example["translation"]["zh"], "ja": example["translation"]["ja"] } })
+    # download_dataset("may-ohta/jparacrawl", "zh", "ja", 'zh-ja', manual_split=True, collation_fn=lambda example: { "translation": { "zh": example["translation"]["zh"], "ja": example["translation"]["ja"] } })
 
     download_dataset("wmt/wmt19", "cs", "en", "cs-en")
     download_dataset("wmt/wmt19", "de", "en", "de-en")
