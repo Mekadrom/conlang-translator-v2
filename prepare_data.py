@@ -6,7 +6,7 @@ import os
 import youtokentome as yttm
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
-    dataset = load_dataset(path, name, cache_dir='data/')
+    dataset = load_dataset(path, name, cache_dir='data/', trust_remote_code=True)
 
     def save_to_file(data, src_filename, tgt_filename):
         src_data_path = os.path.join('data', src_filename)
