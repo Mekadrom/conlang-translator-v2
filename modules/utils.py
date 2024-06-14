@@ -3,7 +3,7 @@ from datasets import load_dataset
 from positional_encodings.torch_encodings import PositionalEncoding2D
 from rotary_embedding_torch import RotaryEmbedding
 from modules import swiglu
-from modules.transformer import AutoRegressiveDecoder, AutoRegressiveTransformer
+from modules.transformer import Decoder, Transformer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -41,13 +41,13 @@ def init_transformer_weights(args, model, tie_embeddings=True):
 
     # Share weights between the embedding layers and the logit layer
 
-    if isinstance(model, AutoRegressiveTransformer):
+    if isinstance(model, Transformer):
         nn.init.normal_(model.encoder.embedding.weight, mean=0., std=args.d_model**-0.5)
         model.decoder.embedding.weight = model.encoder.embedding.weight
 
         if tie_embeddings:
             model.decoder.classifier.weight = model.decoder.embedding.weight
-    elif isinstance(model, AutoRegressiveDecoder):
+    elif isinstance(model, Decoder):
         if tie_embeddings:
             model.classifier.weight = model.embedding.weight
 
@@ -218,7 +218,7 @@ def greedy_translate(args, src, model, src_bpe_model, tgt_bpe_model, device):
 
         return ' '.join(tgt_bpe_model.decode(decoded.tolist(), ignore_ids=[0, 2, 3]))
 
-def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device, beam_size=4, length_norm_coefficient=0.6):
+def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, device, beam_size=4, length_norm_coefficient=0.6):
     """
     Translates a source language sequence to the target language, with beam search decoding.
 
@@ -235,12 +235,13 @@ def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device
         n_completed_hypotheses = min(k, 10)
 
         # Vocab size
-        tgt_vocab_size = tgt_bpe_model.vocab_size()
+        tgt_vocab_size = tokenizer.total_vocab_size()
 
         # If the source sequence is a string, convert to a tensor of IDs
         if isinstance(src, str):
-            encoder_sequences = src_bpe_model.encode(
+            encoder_sequences = tokenizer.encode(
                 src,
+                lang=src_lang,
                 output_type=youtokentome.OutputType.ID,
                 bos=False,
                 eos=False
@@ -248,23 +249,17 @@ def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device
             encoder_sequences = torch.LongTensor(encoder_sequences).unsqueeze(0) # (1, source_sequence_length)
         else:
             encoder_sequences = src
+
         encoder_sequences = encoder_sequences.to(device) # (1, source_sequence_length)
         encoder_sequence_lengths = torch.LongTensor([encoder_sequences.size(1)]).to(device) # (1)
 
         src_key_padding_mask = (encoder_sequences == 0).to(device) # (1, source_sequence_length)
         
         # Encode
-        encoder_sequences, (t_mu, t_logvar), (q_mus, q_logvars), (k_mus, k_logvars), (v_mus, v_logvars), gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
-        if args.train_vae:
-            # mu and logvar + reparemeterization trick to sample from the latent space, which replaces the encoder's output
-            cls_token = encoder_sequences[:, 0, :]
-            mu = model.mu(cls_token)
-            logvar = model.logvar(cls_token)
-
-            encoder_sequences = model.reparameterize(mu, logvar)
+        encoder_sequences, gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
 
         # Our hypothesis to begin with is just <BOS>
-        hypotheses = torch.LongTensor([[tgt_bpe_model.subword_to_id('<BOS>')]]).to(device) # (1, 1)
+        hypotheses = torch.LongTensor([[2]]).to(device) # (1, 1) (BOS == 2)
 
         # Tensor to store hypotheses' scores; now it's just 0
         hypotheses_scores = torch.zeros(1).to(device) # (1)
@@ -283,7 +278,7 @@ def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device
 
             tgt_key_padding_masks = torch.zeros(s, hypotheses.size(1)).to(device).bool()
 
-            decoder_sequences, (t_mu, t_logvar), (s_q_mus, s_q_logvars), (s_k_mus, s_k_logvars), (s_v_mus, s_v_logvars), (c_q_mus, c_q_logvars), (c_k_mus, c_k_logvars), (c_v_mus, c_v_logvars), gating_variances = model.decoder(
+            decoder_sequences, gating_variances = model.decoder(
                 hypotheses,
                 encoder_sequences.repeat(s, 1, 1),
                 src_key_padding_mask.repeat(s, 1), # (s, 1)
@@ -308,7 +303,7 @@ def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device
             top_k_hypotheses = torch.cat([hypotheses[prev_word_indices], next_word_indices.unsqueeze(1)], dim=1) # (k, step + 1)
 
             # Which of these new hypotheses are complete (reached <EOS>)?
-            complete = next_word_indices == tgt_bpe_model.subword_to_id('<EOS>') # (k), bool
+            complete = next_word_indices == 3 # (k), bool (EOS == 3)
 
             # Set aside completed hypotheses and their scores normalized by their lengths
             # For the length normalization formula, see
@@ -337,7 +332,7 @@ def beam_search_translate(args, src, model, src_bpe_model, tgt_bpe_model, device
 
         # Decode the hypotheses
         all_hypotheses = list()
-        for i, h in enumerate(tgt_bpe_model.decode(completed_hypotheses, ignore_ids=[0, 2, 3])):
+        for i, h in enumerate(tokenizer.decode_all(completed_hypotheses, [tgt_lang for _ in range(len(completed_hypotheses))], ignore_ids=[0, 2, 3])):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 
         # Find the best scoring completed hypothesis
