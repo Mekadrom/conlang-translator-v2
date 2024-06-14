@@ -1,6 +1,7 @@
 from datasets import load_dataset
 from tqdm import tqdm
 
+import argparse
 import glob
 import os
 import youtokentome as yttm
@@ -355,6 +356,8 @@ def download_base_traindata():
 def train_tokenizers(vocab_size, output_dir):
     all_training_datafiles = glob.glob('data/train_*')
 
+    print(f"Compiling training data from {len(all_training_datafiles)} data files...")
+
     lang_abbr_to_files = {}
 
     for datafile in all_training_datafiles:
@@ -362,8 +365,14 @@ def train_tokenizers(vocab_size, output_dir):
 
         if lang_abbreviation in lang_abbr_to_files:
             lang_abbr_to_files[lang_abbreviation].append(datafile)
+        else:
+            lang_abbr_to_files[lang_abbreviation] = [datafile]
+
+    print(f"Training tokenizers for {len(lang_abbr_to_files)} languages...")
 
     for lang, file_list in lang_abbr_to_files.items():
+        print(f"Training tokenizer for {lang} on {len(file_list)} files...")
+
         # preliminary cleanup
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -397,7 +406,14 @@ def prune_data(maxlen):
                     f.write(line)
 
 if __name__ == '__main__':
-    download_base_traindata()
+    argparser = argparse.ArgumentParser()
+
+    argparser.add_argument('--skip_download', action='store_true', help='Download the dataset')
+
+    args = argparser.parse_args()
+
+    if not args.skip_download:
+        download_base_traindata()
 
     train_tokenizers(10000, 'tokenizers')
 
