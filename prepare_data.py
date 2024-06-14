@@ -25,7 +25,6 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
         with open(src_data_path, 'a', encoding='utf-8') as src_data_file, open(tgt_data_path, 'a', encoding='utf-8') as tgt_data_file:
             for example in tqdm(data, unit=' examples', total=len(data)):
                 if collation_fn is not None:
-                    print(", ".join(example.keys()))
                     example = collation_fn(example)
 
                 src_data_file.write(f"<{src_lang}>{example['translation'][src_lang]}\n")
