@@ -353,7 +353,7 @@ def download_base_traindata():
 
     download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
-def train_tokenizers(vocab_size, output_dir):
+def train_tokenizers(vocab_size, output_dir, n_threads=-1):
     all_training_datafiles = glob.glob('data/train_*')
 
     print(f"Compiling training data from {len(all_training_datafiles)} data files...")
@@ -388,7 +388,7 @@ def train_tokenizers(vocab_size, output_dir):
                         outfile.write(line)
 
         # train tokenizer
-        yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_{lang}.model"))
+        yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
 
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
@@ -410,6 +410,7 @@ if __name__ == '__main__':
 
     argparser.add_argument('--download', action='store_true', help='Download the dataset')
     argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
+    argparser.add_argument('--train_n_threads', default=-1, type=int, help='Number of threads to use for training tokenizers')
     argparser.add_argument('--prune', action='store_true', help='Prune the data')
 
     args = argparser.parse_args()
@@ -418,7 +419,7 @@ if __name__ == '__main__':
         download_base_traindata()
 
     if args.train:
-        train_tokenizers(16384, 'tokenizers')
+        train_tokenizers(16384, 'tokenizers', n_threads=args.train_n_threads)
 
     if args.prune:
         prune_data(maxlen=256)
