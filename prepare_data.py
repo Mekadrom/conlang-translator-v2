@@ -15,6 +15,7 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
         if os.path.exists(src_data_path) and os.path.exists(tgt_data_path):
             if os.path.getsize(src_data_path) > 0 and os.path.getsize(tgt_data_path) > 0:
                 # skip if data already exists
+                print(f"Skipping {src_data_path} and {tgt_data_path}")
                 return
             else:
                 # delete if data is empty due to previous error
