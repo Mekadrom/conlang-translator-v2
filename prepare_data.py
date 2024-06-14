@@ -9,7 +9,19 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
     dataset = load_dataset(path, name, cache_dir='data/')
 
     def save_to_file(data, src_filename, tgt_filename):
-        with open(os.path.join('data', src_filename), 'a', encoding='utf-8') as src_data_file, open(os.path.join('data', tgt_filename), 'a', encoding='utf-8') as tgt_data_file:
+        src_data_path = os.path.join('data', src_filename)
+        tgt_data_path = os.path.join('data', tgt_filename)
+
+        if os.path.exists(src_data_path) and os.path.exists(tgt_data_path):
+            if os.path.getsize(src_data_path) > 0 and os.path.getsize(tgt_data_path) > 0:
+                # skip if data already exists
+                return
+            else:
+                # delete if data is empty due to previous error
+                os.remove(src_data_path)
+                os.remove(tgt_data_path)
+        
+        with open(src_data_path, 'a', encoding='utf-8') as src_data_file, open(tgt_data_path, 'a', encoding='utf-8') as tgt_data_file:
             for example in tqdm(data, unit=' examples', total=len(data)):
                 if collation_fn is not None:
                     example = collation_fn(example)
@@ -26,6 +38,8 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
     pair_name = f"{src_lang}-{tgt_lang}"
     train_name = f"train_{pair_name}"
     validation_name = f"validation_{pair_name}"
+
+    print(f"Saving to file: {path}/{pair_name}")
 
     save_to_file(dataset['train'], f"{train_name}.{src_lang}", f"{train_name}.{tgt_lang}")
     save_to_file(dataset['validation'], f"{validation_name}.{src_lang}", f"{validation_name}.{tgt_lang}")
@@ -55,10 +69,10 @@ def download_base_traindata():
     download_dataset("wmt/wmt14", "hi", "en", "hi-en")
 
     def eng_to_en(example):
-        return { "en" if key == "eng" else key: value for key, value in example['translation'].items() }
+        return { "translation": { "en" if key == "eng" else key: value for key, value in example['translation'].items() } }
     
     def fra_to_fr(example):
-        return { "fr" if key == "fra" else key: value for key, value in example['translation'].items() }
+        return { "translation": { "fr" if key == "fra" else key: value for key, value in example['translation'].items() } }
 
     download_dataset("allenai/wmt22_african", "afr", "en", "afr-eng", manual_split=True, collation_fn=eng_to_en)
     download_dataset("allenai/wmt22_african", "afr", "som", "afr-som", manual_split=True)

@@ -166,58 +166,6 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def greedy_translate(args, src, model, src_bpe_model, tgt_bpe_model, device):
-    with torch.no_grad():
-        # If the source sequence is a string, convert to a tensor of IDs
-        if isinstance(src, str):
-            encoder_sequences = src_bpe_model.encode(
-                src,
-                output_type=youtokentome.OutputType.ID,
-                bos=False,
-                eos=False
-            )
-            encoder_sequences = torch.LongTensor(encoder_sequences).unsqueeze(0)
-
-        else:
-            encoder_sequences = src
-        encoder_sequences = encoder_sequences.to(device)
-        encoder_sequence_lengths = torch.LongTensor([encoder_sequences.size(1)]).to(device)
-
-        src_key_padding_mask = (encoder_sequences == 0).to(device)
-
-        encoder_sequences, _ = model.encoder(encoder_sequences, encoder_sequence_lengths, src_key_padding_mask)
-
-        if args.train_vae:
-            # mu and logvar + reparemeterization trick to sample from the latent space, which replaces the encoder's output
-            cls_token = encoder_sequences[:, 0, :]
-            mu = model.mu(cls_token)
-            logvar = model.logvar(cls_token)
-
-            encoder_sequences = model.reparameterize(mu, logvar).unsqueeze(0)
-            encoder_sequence_lengths = torch.ones(encoder_sequences.shape[:-1], dtype=torch.long, device=encoder_sequences.device)
-
-        steps = 0
-        decoded = torch.LongTensor([[tgt_bpe_model.subword_to_id('<BOS>')]]).to(device)
-        while True:
-            decoder_sequences, _ = model.decoder(decoded, torch.LongTensor([decoded.size(1)]).to(device), encoder_sequences, encoder_sequence_lengths)
-
-            next_word_scores = decoder_sequences[:, -1, :]
-            next_word_scores = F.log_softmax(next_word_scores, dim=-1)
-
-            next_word = torch.argmax(next_word_scores, dim=-1)
-
-            decoded = torch.cat([decoded, next_word.unsqueeze(1)], dim=1)
-
-            if next_word.item() == tgt_bpe_model.subword_to_id('<EOS>'):
-                return ' '.join(tgt_bpe_model.decode(decoded.tolist(), ignore_ids=[0, 2, 3]))
-
-            steps += 1
-            if steps >= args.maxlen:
-                # gone on too long
-                break
-
-        return ' '.join(tgt_bpe_model.decode(decoded.tolist(), ignore_ids=[0, 2, 3]))
-
 def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, device, beam_size=4, length_norm_coefficient=0.6):
     """
     Translates a source language sequence to the target language, with beam search decoding.
