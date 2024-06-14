@@ -408,13 +408,17 @@ def prune_data(maxlen):
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
-    argparser.add_argument('--skip_download', action='store_true', help='Download the dataset')
+    argparser.add_argument('--download', action='store_true', help='Download the dataset')
+    argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
+    argparser.add_argument('--prune', action='store_true', help='Prune the data')
 
     args = argparser.parse_args()
 
-    if not args.skip_download:
+    if args.download:
         download_base_traindata()
 
-    train_tokenizers(10000, 'tokenizers')
+    if args.train:
+        train_tokenizers(16384, 'tokenizers')
 
-    # prune_data(maxlen=256)
+    if args.prune:
+        prune_data(maxlen=256)

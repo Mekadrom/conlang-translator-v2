@@ -43,7 +43,7 @@ if not os.path.exists(run_dir):
 
 summary_writer = SummaryWriter(log_dir=run_dir)
 
-tokenizer = supreme_tokenizer.SupremeTokenizer(10000)
+tokenizer = supreme_tokenizer.SupremeTokenizer(16384)
 
 model = transformer.Transformer(args, tokenizer.total_vocab_size())
 model = model.to(args.device)
