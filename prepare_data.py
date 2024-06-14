@@ -5,8 +5,8 @@ import glob
 import os
 import youtokentome as yttm
 
-def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
-    dataset = load_dataset(path, name, cache_dir='data/', trust_remote_code=True)
+def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None, config_kwargs=None):
+    dataset = load_dataset(path, name, cache_dir='data/', trust_remote_code=True, config_kwargs=config_kwargs)
 
     def save_to_file(data, src_filename, tgt_filename):
         src_data_path = os.path.join('data', src_filename)
@@ -46,6 +46,9 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
 
 def download_base_traindata():
     # total # of languages represented: 34
+
+    download_dataset("may-ohta/jparacrawl", "en", "ja", manual_split=True, collation_fn=lambda example: { "translation": { "en": example["en"], "ja": example["ja"] } })
+    download_dataset("may-ohta/jparacrawl", "zh", "ja", manual_split=True, collation_fn=lambda example: { "translation": { "zh": example["zh"], "ja": example["ja"] } })
 
     download_dataset("wmt/wmt19", "cs", "en", "cs-en")
     download_dataset("wmt/wmt19", "de", "en", "de-en")
@@ -153,7 +156,6 @@ def download_base_traindata():
     download_dataset("allenai/wmt22_african", "fuv", "tsn", "fuv-tsn", manual_split=True)
     download_dataset("allenai/wmt22_african", "fuv", "tso", "fuv-tso", manual_split=True)
     download_dataset("allenai/wmt22_african", "fuv", "umb", "fuv-umb", manual_split=True)
-    download_dataset("allenai/wmt22_african", "fuv", "wol", "fuv-wol", manual_split=True)
     download_dataset("allenai/wmt22_african", "fuv", "xho", "fuv-xho", manual_split=True)
     download_dataset("allenai/wmt22_african", "fuv", "yor", "fuv-yor", manual_split=True)
     download_dataset("allenai/wmt22_african", "fuv", "zul", "fuv-zul", manual_split=True)
