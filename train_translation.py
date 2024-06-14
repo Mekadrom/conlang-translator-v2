@@ -1,6 +1,6 @@
 from criteria.labelsmooth import LabelSmoothedCE
 from dataloader import SequenceLoader
-from modules import transformer, utils
+from modules import transformer
 from prettytable import PrettyTable
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -13,8 +13,8 @@ import seaborn as sns
 import supreme_tokenizer
 import time
 import torch
-import torch.nn as nn
 import torch.optim as optim
+import utils
 
 class EarlyStopping:
     def __init__(self, patience=7, min_delta=0):
@@ -79,9 +79,6 @@ val_data_files = glob.glob(f"data/validation_*")
 if len(train_data_files) != len(val_data_files):
     raise ValueError("Number of train and validation files do not match.")
 
-if len(train_data_files) != len(tokenizer.langs):
-    raise ValueError("Number of train files and languages do not match.")
-
 def load_data(tokens_in_batch, run_dir, tokenizer, pad_to_length=None):
     print('Loading training data SequenceLoader...')
     train_loader = SequenceLoader(
@@ -122,6 +119,8 @@ class Trainer:
     def train(self, model_name_prefix=''):
         self.steps = 0
         self.start_epoch = self.args.start_epoch
+
+        print(f"n_steps: {self.args.n_steps}, batches_per_step: {self.args.batches_per_step}, n_batches: {self.train_loader.n_batches}")
         self.epochs = (self.args.n_steps // (self.train_loader.n_batches // self.args.batches_per_step)) + 1
 
         print(f"Training for {self.epochs} epochs...")
@@ -373,3 +372,7 @@ class Trainer:
                         self.summary_writer.add_image(f"Decoder Layer {d} Head {i} Cross-Attn Weights for Segment {a}", plt.imread(image_data), global_step=step, dataformats='HWC')
 
                 target_sequence, _ = decoder_layer.fcn(target_sequence) # (N, pad_length, d_model)
+
+if __name__ == "__main__":
+    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, train_loader, val_loader, args.device, run_dir, summary_writer, early_stopping)
+    trainer.train()

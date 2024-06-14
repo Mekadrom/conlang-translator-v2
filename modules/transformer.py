@@ -1,10 +1,14 @@
-from modules import utils
-
 import admin_torch
 import math
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+import utils
 
 class Sum(nn.Module):
     def __init__(self):
@@ -462,11 +466,10 @@ class DecoderLayer(nn.Module):
         return decoder_sequences, gating_variances
 
 class Decoder(nn.Module):
-    def __init__(self, args, vocab_size, use_cross_attn=True, norm=nn.LayerNorm):
+    def __init__(self, args, vocab_size, norm=nn.LayerNorm):
         super(Decoder, self).__init__()
 
         self.args = args
-        self.use_cross_attn = use_cross_attn
 
         self.d_model = args.d_model
 
@@ -481,7 +484,7 @@ class Decoder(nn.Module):
 
     def make_decoder_layers(self, n_layers, param_sharing_type, m_independent_layers, norm=nn.LayerNorm):
         def new_decoder_layer():
-            return DecoderLayer(self.args, use_cross_attn=self.use_cross_attn, norm=norm)
+            return DecoderLayer(self.args, norm=norm)
         
         layers = []
         for i in range(n_layers):

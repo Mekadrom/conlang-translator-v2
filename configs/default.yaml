@@ -32,8 +32,8 @@ m_encoder_independent_layers: 0
 m_decoder_independent_layers: 0
 activation_function: swiglu
 
-tokens_in_batch: 5000
-target_tokens_per_batch: 25000
+tokens_in_batch: 2000
+target_tokens_per_batch: 26000
 n_steps: 100000
 warmup_steps: 8000
 beta1: 0.9

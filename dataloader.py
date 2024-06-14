@@ -30,15 +30,15 @@ class SequenceLoader(object):
 
         src_tgt_pairs = {}
         for data_file in data_files:
+            print(f"data_file: {data_file}")
             file_name, single = data_file.split(".")
             split, pair = file_name.split("_")
             src, tgt = pair.split("-")
 
-            for src_tgt_pair in src_tgt_pairs:
-                if pair not in src_tgt_pair:
-                    src_tgt_pairs[pair] = [None, None]
+            if pair not in src_tgt_pairs.keys():
+                src_tgt_pairs[pair] = {'src': None, 'tgt': None }
 
-                src_tgt_pairs[pair]['src' if src == pair else 'tgt'] = src_tgt_pair
+            src_tgt_pairs[pair]['src' if src == single else 'tgt'] = data_file
 
             """
             data structure of src_tgt_pairs:
@@ -55,6 +55,8 @@ class SequenceLoader(object):
             }
             """
 
+        print(f"src_tgt_pairs: {src_tgt_pairs}")
+
         for lang_pair, data_file_dict in src_tgt_pairs.items():
             with codecs.open(data_file_dict['src'], "r", encoding="utf-8") as f:
                 src_langs.append(lang_pair.split("-")[0])
@@ -66,8 +68,8 @@ class SequenceLoader(object):
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 
-        source_lengths = [len(s) for s in tqdm(self.tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
-        target_lengths = [len(t) for t in tqdm(self.tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        source_lengths = [len(s) for s in tqdm(self.tokenizer.encode_all(source_data, langs=src_langs, bos=False, eos=False), desc='Encoding src sequences')]
+        target_lengths = [len(t) for t in tqdm(self.tokenizer.encode_all(target_data, langs=tgt_langs, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths, src_langs, tgt_langs))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
@@ -76,6 +78,8 @@ class SequenceLoader(object):
 
         # Create batches
         self.create_batches()
+
+        print(f"n_batches: {self.n_batches} len(self.data): {len(self.data)}")
 
     def create_batches(self):
         if self.for_training:

@@ -1,13 +1,14 @@
 from collections import OrderedDict
 from datasets import load_dataset
+from dataloader import SequenceLoader
 from positional_encodings.torch_encodings import PositionalEncoding2D
 from rotary_embedding_torch import RotaryEmbedding
 from modules.swiglu import SwiGLU
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import argparse
 import codecs
+import glob
 import math
 import modules.transformer as transformer
 import os
@@ -321,7 +322,7 @@ def average_checkpoints(epoch, optimizer, source_folder, num_latest_checkpoints=
     # Save averaged checkpoint
     torch.save({'epoch': epoch, 'model': averaged_checkpoint, 'optim': optimizer}, f"{source_folder}/averaged_transformer_checkpoint.pth.tar")
 
-def sacrebleu_evaluate(args, run_dir, src_bpe_model, tgt_bpe_model, model, device, sacrebleu_in_python, test_loader=None, vae_model=False):
+def sacrebleu_evaluate(args, run_dir, tokenizer, model, device, sacrebleu_in_python, test_loader=None):
     """
     Returns None when command line sacrebleu is used
     """
@@ -331,23 +332,22 @@ def sacrebleu_evaluate(args, run_dir, src_bpe_model, tgt_bpe_model, model, devic
     bleu_score = None
 
     if test_loader is None:
-        target_suffix = "src" if vae_model else "tgt"
-        test_loader = SequenceLoader(src_bpe_model=src_bpe_model,
-                                    tgt_bpe_model=tgt_bpe_model,
-                                    data_folder=os.path.join('.', "data"),
-                                    source_suffix="src",
-                                    target_suffix=target_suffix,
-                                    split="test",
-                                    tokens_in_batch=None)
+        val_data_files = glob.glob(f"data/validation_*")
+        test_loader = SequenceLoader(
+            tokenizer=tokenizer,
+            data_files=val_data_files,
+            tokens_in_batch=args.tokens_in_batch,
+            pad_to_length=args.maxlen
+        )
         test_loader.create_batches()
 
     # Evaluate
     with torch.no_grad():
         hypotheses = list()
         references = list()
-        for i, (source_sequence, target_sequence, source_sequence_length, target_sequence_length) in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
-            hypotheses.append(beam_search_translate(args, src=source_sequence, src_bpe_model=src_bpe_model, tgt_bpe_model=tgt_bpe_model, device=device, model=model, beam_size=4, length_norm_coefficient=0.6)[0])
-            references.extend(tgt_bpe_model.decode(target_sequence.tolist(), ignore_ids=[0, 2, 3]))
+        for i, (source_sequence, target_sequence, source_sequence_length, target_sequence_length, src_lang, tgt_lang) in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
+            hypotheses.append(beam_search_translate(args, src=source_sequence, tokenizer=tokenizer, src_lang=src_lang, tgt_lang=tgt_lang, device=device, model=model, beam_size=4, length_norm_coefficient=0.6)[0])
+            references.extend(tokenizer.decode_all(target_sequence.tolist(), tgt_lang, ignore_ids=[0, 2, 3]))
 
         if sacrebleu_in_python:
             print("\n13a tokenization, cased:\n")
@@ -398,7 +398,7 @@ def create_activation_function(d_in, activation_function_name):
     elif activation_function_name == 'leaky_relu':
         return nn.LeakyReLU()
     elif activation_function_name == 'swiglu':
-        return transformer.SwiGLU(d_in)
+        return SwiGLU(d_in)
     elif activation_function_name == 'none':
         return nn.Identity()
     else:
