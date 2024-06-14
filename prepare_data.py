@@ -350,7 +350,7 @@ def download_base_traindata():
 
     download_dataset("allenai/wmt22_african", "yor", "zul", "yor-zul", manual_split=True)
 
-    download_dataset("en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
+    download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
 def train_tokenizers(vocab_size, output_dir):
     all_training_datafiles = glob.glob('data/train_*')
