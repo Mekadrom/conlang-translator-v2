@@ -401,4 +401,4 @@ if __name__ == '__main__':
 
     train_tokenizers(10000, 'tokenizers')
 
-    prune_data(maxlen=256)
+    # prune_data(maxlen=256)
