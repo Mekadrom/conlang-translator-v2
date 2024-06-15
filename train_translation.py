@@ -9,6 +9,7 @@ import glob
 import io
 import matplotlib.pyplot as plt
 import os
+import random
 import seaborn as sns
 import supreme_tokenizer
 import time
@@ -79,7 +80,7 @@ val_data_files = glob.glob(f"data/validation_*")
 if len(train_data_files) != len(val_data_files):
     raise ValueError("Number of train and validation files do not match.")
 
-def load_data(tokens_in_batch, run_dir, tokenizer, pad_to_length=None):
+def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=None):
     # print('Loading training data SequenceLoader...')
     # train_loader = SequenceLoader(
     #     tokenizer=tokenizer,
@@ -97,20 +98,40 @@ def load_data(tokens_in_batch, run_dir, tokenizer, pad_to_length=None):
     #     pad_to_length=pad_to_length
     # )
 
+    print('Loading training data SequenceLoader...')
+    train_loader = SequenceLoader(
+        src_tokenizer=tokenizer,
+        tgt_tokenizer=tokenizer,
+        data_folder=os.path.join(run_dir),
+        source_suffix="src",
+        target_suffix='tgt',
+        split=f"train_collated{collated_idx}",
+        tokens_in_batch=tokens_in_batch,
+        pad_to_length=pad_to_length
+    )
+
+    print('Loading validation data SequenceLoader...')
+    val_loader = SequenceLoader(
+        src_tokenizer=tokenizer,
+        tgt_tokenizer=tokenizer,
+        data_folder=os.path.join(run_dir),
+        source_suffix="src",
+        target_suffix='tgt',
+        split=f"validation_collated{collated_idx}",
+        tokens_in_batch=tokens_in_batch,
+        pad_to_length=pad_to_length
+    )
+
     return train_loader, val_loader
 
-train_loader, val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, pad_to_length=args.maxlen)
-
 class Trainer:
-    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, train_loader, val_loader, device, run_dir, summary_writer, early_stopping=None):
+    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, device, run_dir, summary_writer, early_stopping=None):
         self.args = args
         self.tokenizer = tokenizer
         self.model = model
         self.compiled_model = compiled_model
         self.optimizer = optimizer
         self.criterion = criterion
-        self.train_loader = train_loader
-        self.val_loader = val_loader
         self.device = device
         self.run_dir = run_dir
         self.summary_writer = summary_writer
@@ -125,7 +146,11 @@ class Trainer:
 
         print(f"Training for {self.epochs} epochs...")
         start = time.time()
+
         for epoch in range(self.start_epoch, self.epochs):
+            # load random train and validation dataset
+            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
+
             self.steps = (epoch * self.train_loader.n_batches // self.args.batches_per_step)
 
             self.train_loader.create_batches()
