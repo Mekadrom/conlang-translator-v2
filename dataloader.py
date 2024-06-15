@@ -15,11 +15,10 @@ class SequenceLoader(object):
         self.tokens_in_batch = tokens_in_batch
         self.pad_to_length = pad_to_length
 
-        assert split.lower() in {"train", "val", "test"}, "'split' must be one of 'train', 'val', 'test'! (case-insensitive)"
         self.split = split.lower()
 
         # Is this for training?
-        self.for_training = self.split == "train"
+        self.for_training = self.split.startswith("train")
 
         # Load BPE model
         self.src_tokenizer = src_tokenizer
@@ -33,8 +32,8 @@ class SequenceLoader(object):
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 
-        source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode(source_data, bos=False, eos=False), desc='Encoding src sequences')]
-        target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
+        target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later

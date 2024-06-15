@@ -22,12 +22,14 @@ class SupremeTokenizer:
     def encode(self, seq, **kwargs):
         lang_prefix = ''
 
-        for c in seq:
-            if c == '>':
-                break
-            lang_prefix += c
-
-        seq = seq[len(lang_prefix):]
+        if seq[3] == '>':
+            lang_prefix = seq[:4]
+            seq = seq[4:]
+        elif seq[4] == '>':
+            lang_prefix = seq[:5]
+            seq = seq[5:]
+        else:
+            raise ValueError("No language prefix found in sequence!")
 
         local_tokenization = self.tokenizers[lang_prefix].encode(seq, **kwargs)
 

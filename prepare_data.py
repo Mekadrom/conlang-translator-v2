@@ -418,14 +418,14 @@ def collate_dataset(split, n_collated_files):
     
     src_tgt_pairs: dict[str, dict[str, str]] = utils.get_structured_data_paths(glob.glob(f"data/{split}_*"))
 
-    for pair, paths in src_tgt_pairs.items():
+    for pair, paths in tqdm(src_tgt_pairs.items(), desc=f"Collating {split}..."):
         src_path = paths['src']
         tgt_path = paths['tgt']
         with open(src_path, 'r', encoding="utf-8") as src_file, open(tgt_path, 'r', encoding="utf-8") as tgt_file:
             src_lines = src_file.readlines()
             tgt_lines = tgt_file.readlines()
 
-            for src_line, tgt_line in zip(src_lines, tgt_lines):
+            for src_line, tgt_line in tqdm(zip(src_lines, tgt_lines), total=len(src_lines), desc=f"Collating {pair}..."):
                 file_idx = random.randint(0, n_collated_files - 1)
                 with open(f"data/{split}_collated_{file_idx}.src", 'a', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'a', encoding="utf-8") as tgt_collated_file:
                     src_collated_file.write(src_line)

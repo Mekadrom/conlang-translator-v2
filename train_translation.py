@@ -46,7 +46,7 @@ summary_writer = SummaryWriter(log_dir=run_dir)
 
 tokenizer = supreme_tokenizer.SupremeTokenizer()
 
-model = transformer.Transformer(args, tokenizer.total_vocab_size())
+model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
 model = model.to(args.device)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), eps=args.epsilon)
@@ -102,10 +102,10 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
     train_loader = SequenceLoader(
         src_tokenizer=tokenizer,
         tgt_tokenizer=tokenizer,
-        data_folder=os.path.join(run_dir),
+        data_folder=os.path.join('data'),
         source_suffix="src",
         target_suffix='tgt',
-        split=f"train_collated{collated_idx}",
+        split=f"train_collated_{collated_idx}",
         tokens_in_batch=tokens_in_batch,
         pad_to_length=pad_to_length
     )
@@ -114,10 +114,10 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
     val_loader = SequenceLoader(
         src_tokenizer=tokenizer,
         tgt_tokenizer=tokenizer,
-        data_folder=os.path.join(run_dir),
+        data_folder=os.path.join('data'),
         source_suffix="src",
         target_suffix='tgt',
-        split=f"validation_collated{collated_idx}",
+        split=f"validation_collated_{collated_idx}",
         tokens_in_batch=tokens_in_batch,
         pad_to_length=pad_to_length
     )
@@ -141,16 +141,13 @@ class Trainer:
         self.steps = 0
         self.start_epoch = self.args.start_epoch
 
-        print(f"n_steps: {self.args.n_steps}, batches_per_step: {self.args.batches_per_step}, n_batches: {self.train_loader.n_batches}")
-        self.epochs = (self.args.n_steps // (self.train_loader.n_batches // self.args.batches_per_step)) + 1
+        self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
+        self.epochs = (self.args.n_steps // ((self.train_loader.n_batches * 10) // self.args.batches_per_step)) + 1
 
         print(f"Training for {self.epochs} epochs...")
         start = time.time()
 
         for epoch in range(self.start_epoch, self.epochs):
-            # load random train and validation dataset
-            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
-
             self.steps = (epoch * self.train_loader.n_batches // self.args.batches_per_step)
 
             self.train_loader.create_batches()
@@ -170,6 +167,8 @@ class Trainer:
                     self.val_loader.create_batches()
                     self.validate_epoch(self.model)
                     break
+
+            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
 
         time_taken = time.time() - start
 
@@ -399,5 +398,5 @@ class Trainer:
                 target_sequence, _ = decoder_layer.fcn(target_sequence) # (N, pad_length, d_model)
 
 if __name__ == "__main__":
-    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, train_loader, val_loader, args.device, run_dir, summary_writer, early_stopping)
+    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, args.device, run_dir, summary_writer, early_stopping)
     trainer.train()

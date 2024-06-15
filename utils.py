@@ -76,7 +76,7 @@ def get_language_tokenizer_offset(lang):
         if l == lang:
             return offset
         offset += vocab_size
-    raise ValueError(f"Language {lang} not found in VOCAB_SIZES")
+    raise ValueError(f"Language {lang[:min(20, len(lang))]} not found in VOCAB_SIZES")
 
 def get_language_indicator_index(lang):
     return list(VOCAB_SIZES.keys()).index(lang)
@@ -101,7 +101,6 @@ def get_structured_data_paths(data_files):
     """
     src_tgt_pairs = {}
     for data_file in data_files:
-        print(f"data_file: {data_file}")
         file_name, single = data_file.split(".")
         split, pair = file_name.split("_")
         src, tgt = pair.split("-")
