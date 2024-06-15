@@ -9,7 +9,10 @@ import utils
 import youtokentome as yttm
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
-    dataset = load_dataset(path, name, cache_dir='data/', trust_remote_code=True)
+    os.makedirs('downloaded', exist_ok=True)
+    os.makedirs('data', exist_ok=True)
+
+    dataset = load_dataset(path, name, cache_dir='downloaded/', trust_remote_code=True)
 
     def save_to_file(data, src_filename, tgt_filename):
         src_data_path = os.path.join('data', src_filename)
