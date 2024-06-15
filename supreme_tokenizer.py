@@ -29,7 +29,9 @@ class SupremeTokenizer:
             lang_prefix = seq[:5]
             seq = seq[5:]
         else:
-            raise ValueError("No language prefix found in sequence!")
+            raise ValueError(f"No language prefix found in sequence! (first 20 chars: {seq[:min(20, len(seq))]})")
+        
+        lang_prefix = lang_prefix[1:-1] # remove < and >
 
         local_tokenization = self.tokenizers[lang_prefix].encode(seq, **kwargs)
 
