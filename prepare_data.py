@@ -427,7 +427,7 @@ def collate_dataset(split, n_collated_files):
 
             for src_line, tgt_line in zip(src_lines, tgt_lines):
                 file_idx = random.randint(0, n_collated_files - 1)
-                with open(f"data/{split}_collated_{file_idx}.src", 'w', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'w', encoding="utf-8") as tgt_collated_file:
+                with open(f"data/{split}_collated_{file_idx}.src", 'a', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'a', encoding="utf-8") as tgt_collated_file:
                     src_collated_file.write(src_line)
                     tgt_collated_file.write(tgt_line)
 
