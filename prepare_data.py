@@ -386,8 +386,14 @@ def train_tokenizers(output_dir, n_threads=-1):
         with open(f'tokenizer_{lang}.txt', 'w') as outfile:
             for fname in file_list:
                 with open(fname) as infile:
+                    idx = 0
                     for line in infile:
-                        outfile.write(line)
+                        if idx == 0:
+                            for c in line:
+                                idx += 1
+                                if c == '>':
+                                    break
+                        outfile.write(line[idx:]) # remove the language tag
 
         # # train tokenizer
         yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=utils.VOCAB_SIZES[lang], model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
