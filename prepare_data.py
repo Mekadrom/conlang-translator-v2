@@ -4,6 +4,8 @@ from tqdm import tqdm
 import argparse
 import glob
 import os
+import random
+import utils
 import youtokentome as yttm
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
@@ -353,7 +355,7 @@ def download_base_traindata():
 
     download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
-def train_tokenizers(vocab_size, output_dir, n_threads=-1):
+def train_tokenizers(output_dir, n_threads=-1):
     all_training_datafiles = glob.glob('data/train_*')
 
     print(f"Compiling training data from {len(all_training_datafiles)} data files...")
@@ -387,8 +389,8 @@ def train_tokenizers(vocab_size, output_dir, n_threads=-1):
                     for line in infile:
                         outfile.write(line)
 
-        # train tokenizer
-        yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
+        # # train tokenizer
+        yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=utils.VOCAB_SIZES[lang], model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
 
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
@@ -405,6 +407,28 @@ def prune_data(maxlen):
                 if len(tokenizer.encode(line.strip())) <= maxlen:
                     f.write(line)
 
+def collate_dataset(split, n_collated_files):
+    # append all training data to n_collated_files files
+    
+    src_tgt_pairs: dict[str, dict[str, str]] = utils.get_structured_data_paths(glob.glob(f"data/{split}_*"))
+
+    for pair, paths in src_tgt_pairs.items():
+        src_path = paths['src']
+        tgt_path = paths['tgt']
+        with open(src_path, 'r', encoding="utf-8") as src_file, open(tgt_path, 'r', encoding="utf-8") as tgt_file:
+            src_lines = src_file.readlines()
+            tgt_lines = tgt_file.readlines()
+
+            for src_line, tgt_line in zip(src_lines, tgt_lines):
+                file_idx = random.randint(0, n_collated_files - 1)
+                with open(f"data/{split}_collated_{file_idx}.src", 'w', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'w', encoding="utf-8") as tgt_collated_file:
+                    src_collated_file.write(src_line)
+                    tgt_collated_file.write(tgt_line)
+
+def collate_data(n_collated_files):
+    collate_dataset('train', n_collated_files)
+    collate_dataset('validation', n_collated_files)
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
@@ -412,6 +436,8 @@ if __name__ == '__main__':
     argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
     argparser.add_argument('--train_n_threads', default=-1, type=int, help='Number of threads to use for training tokenizers')
     argparser.add_argument('--prune', action='store_true', help='Prune the data')
+    argparser.add_argument('--collate', action='store_true', help='Collate the data')
+    argparser.add_argument('--n_collated_files', default=10, type=int, help='Number of collated files to create')
 
     args = argparser.parse_args()
 
@@ -419,7 +445,10 @@ if __name__ == '__main__':
         download_base_traindata()
 
     if args.train:
-        train_tokenizers(16384, 'tokenizers', n_threads=args.train_n_threads)
+        train_tokenizers('tokenizers', n_threads=args.train_n_threads)
 
     if args.prune:
         prune_data(maxlen=256)
+
+    if args.collate:
+        collate_data(args.n_collated_files)

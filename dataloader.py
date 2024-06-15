@@ -3,74 +3,39 @@ from random import shuffle
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 
-import glob
 import codecs
 import os
 import torch
 import youtokentome
 
 class SequenceLoader(object):
-    def __init__(self, tokenizer, data_files, tokens_in_batch, for_training=False, pad_to_length=None):
+    def __init__(self, src_tokenizer, tgt_tokenizer, data_folder, source_suffix, target_suffix, split, tokens_in_batch, pad_to_length=None):
+        self.source_suffix = source_suffix
+        self.target_suffix = target_suffix
         self.tokens_in_batch = tokens_in_batch
         self.pad_to_length = pad_to_length
 
+        assert split.lower() in {"train", "val", "test"}, "'split' must be one of 'train', 'val', 'test'! (case-insensitive)"
+        self.split = split.lower()
+
         # Is this for training?
-        self.for_training = for_training
+        self.for_training = self.split == "train"
 
         # Load BPE model
-        self.tokenizer = tokenizer
+        self.src_tokenizer = src_tokenizer
+        self.tgt_tokenizer = tgt_tokenizer
 
         # Load data
-
-        source_data = []
-        target_data = []
-
-        src_langs = []
-        tgt_langs = []
-
-        src_tgt_pairs = {}
-        for data_file in data_files:
-            print(f"data_file: {data_file}")
-            file_name, single = data_file.split(".")
-            split, pair = file_name.split("_")
-            src, tgt = pair.split("-")
-
-            if pair not in src_tgt_pairs.keys():
-                src_tgt_pairs[pair] = {'src': None, 'tgt': None }
-
-            src_tgt_pairs[pair]['src' if src == single else 'tgt'] = data_file
-
-            """
-            data structure of src_tgt_pairs:
-            {
-                'en-de': {
-                    'src': 'train_en-de.en',
-                    'tgt': 'train_en-de.de'
-                },
-                'de-en': {
-                    'src': 'train_de-en.de',
-                    'tgt': 'train_de-en.en'
-                },
-                ...
-            }
-            """
-
-        print(f"src_tgt_pairs: {src_tgt_pairs}")
-
-        for lang_pair, data_file_dict in src_tgt_pairs.items():
-            with codecs.open(data_file_dict['src'], "r", encoding="utf-8") as f:
-                src_langs.append(lang_pair.split("-")[0])
-                source_data.append(f.read().split("\n")[:-1])
-
-            with codecs.open(data_file_dict['tgt'], "r", encoding="utf-8") as f:
-                tgt_langs.append(lang_pair.split("-")[1])
-                target_data.append(f.read().split("\n")[:-1])
+        with codecs.open(os.path.join(data_folder, ".".join([split, source_suffix])), "r", encoding="utf-8") as f:
+            source_data = f.read().split("\n")[:-1]
+        with codecs.open(os.path.join(data_folder, ".".join([split, target_suffix])), "r", encoding="utf-8") as f:
+            target_data = f.read().split("\n")[:-1]
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 
-        source_lengths = [len(s) for s in tqdm(self.tokenizer.encode_all(source_data, langs=src_langs, bos=False, eos=False), desc='Encoding src sequences')]
-        target_lengths = [len(t) for t in tqdm(self.tokenizer.encode_all(target_data, langs=tgt_langs, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
-        self.data = list(zip(source_data, target_data, source_lengths, target_lengths, src_langs, tgt_langs))
+        source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode(source_data, bos=False, eos=False), desc='Encoding src sequences')]
+        target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        self.data = list(zip(source_data, target_data, source_lengths, target_lengths))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
         if self.for_training:
@@ -79,9 +44,10 @@ class SequenceLoader(object):
         # Create batches
         self.create_batches()
 
-        print(f"n_batches: {self.n_batches} len(self.data): {len(self.data)}")
-
     def create_batches(self):
+        """
+        Prepares batches for one epoch.
+        """
         if self.for_training:
             # Group or chunk based on target sequence lengths
             chunks = [list(g) for _, g in groupby(self.data, key=lambda x: x[3])]
@@ -107,24 +73,36 @@ class SequenceLoader(object):
             self.current_batch = -1
 
     def __iter__(self):
+        """
+        Iterators require this method defined.
+        """
         return self
 
     def __next__(self):
+        """
+        Iterators require this method defined.
+
+        :returns: the next batch, containing:
+            source language sequences, a tensor of size (N, encoder_sequence_pad_length)
+            target language sequences, a tensor of size (N, decoder_sequence_pad_length)
+            true source language lengths, a tensor of size (N)
+            true target language lengths, typically the same as decoder_sequence_pad_length as these sequences are bucketed by length, a tensor of size (N)
+        """
         # Update current batch index
         self.current_batch += 1
         try:
-            source_data, target_data, source_lengths, target_lengths, src_langs, tgt_langs = zip(*self.all_batches[self.current_batch])
+            source_data, target_data, source_lengths, target_lengths = zip(*self.all_batches[self.current_batch])
         # Stop iteration once all batches are iterated through
         except IndexError:
             raise StopIteration
 
         # Tokenize using BPE model to word IDs
-        source_data = self.tokenizer.encode_all(source_data, src_langs, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
-        target_data = self.tokenizer.encode_all(target_data, tgt_langs, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        source_data = self.src_tokenizer.encode(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+        target_data = self.tgt_tokenizer.encode(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
 
         # Convert source and target sequences as padded tensors
-        source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)
-        target_data = pad_sequence(sequences=[torch.LongTensor(t) for t in target_data], batch_first=True, padding_value=0)
+        source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=self.src_tokenizer.subword_to_id('<PAD>'))
+        target_data = pad_sequence(sequences=[torch.LongTensor(t) for t in target_data], batch_first=True, padding_value=self.tgt_tokenizer.subword_to_id('<PAD>'))
 
         if self.pad_to_length is not None:
             source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)
@@ -134,4 +112,4 @@ class SequenceLoader(object):
         source_lengths = torch.LongTensor(source_lengths)
         target_lengths = torch.LongTensor(target_lengths)
 
-        return source_data, target_data, source_lengths, target_lengths, src_langs, tgt_langs
+        return source_data, target_data, source_lengths, target_lengths

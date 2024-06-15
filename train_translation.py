@@ -1,5 +1,5 @@
 from criteria.labelsmooth import LabelSmoothedCE
-from supreme_dataloader import SequenceLoader
+from dataloader import SequenceLoader
 from modules import transformer
 from prettytable import PrettyTable
 from torch.utils.tensorboard import SummaryWriter
@@ -43,7 +43,7 @@ if not os.path.exists(run_dir):
 
 summary_writer = SummaryWriter(log_dir=run_dir)
 
-tokenizer = supreme_tokenizer.SupremeTokenizer(16384)
+tokenizer = supreme_tokenizer.SupremeTokenizer()
 
 model = transformer.Transformer(args, tokenizer.total_vocab_size())
 model = model.to(args.device)
@@ -80,22 +80,22 @@ if len(train_data_files) != len(val_data_files):
     raise ValueError("Number of train and validation files do not match.")
 
 def load_data(tokens_in_batch, run_dir, tokenizer, pad_to_length=None):
-    print('Loading training data SequenceLoader...')
-    train_loader = SequenceLoader(
-        tokenizer=tokenizer,
-        data_files=train_data_files,
-        tokens_in_batch=tokens_in_batch,
-        for_training=True,
-        pad_to_length=pad_to_length
-    )
+    # print('Loading training data SequenceLoader...')
+    # train_loader = SequenceLoader(
+    #     tokenizer=tokenizer,
+    #     data_files=train_data_files,
+    #     tokens_in_batch=tokens_in_batch,
+    #     for_training=True,
+    #     pad_to_length=pad_to_length
+    # )
 
-    print('Loading validation data SequenceLoader...')
-    val_loader = SequenceLoader(
-        tokenizer=tokenizer,
-        data_files=val_data_files,
-        tokens_in_batch=tokens_in_batch,
-        pad_to_length=pad_to_length
-    )
+    # print('Loading validation data SequenceLoader...')
+    # val_loader = SequenceLoader(
+    #     tokenizer=tokenizer,
+    #     data_files=val_data_files,
+    #     tokens_in_batch=tokens_in_batch,
+    #     pad_to_length=pad_to_length
+    # )
 
     return train_loader, val_loader
 
@@ -166,7 +166,7 @@ class Trainer:
             # get attention weight visualization before any updates are made to the model
             with torch.no_grad():
                 self.model.eval()
-                self.viz_model(0, self.model, "Anyone who retains the ability to recognise beauty will never become old.", "Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
+                self.viz_model(0, self.model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
     def train_epoch(self, model, epoch):
         # training mode enables dropout
@@ -182,7 +182,7 @@ class Trainer:
         start_data_time = time.time()
         start_step_time = time.time()
 
-        for i, (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, src_langs, tgt_langs) in enumerate(self.train_loader):
+        for i, (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths) in enumerate(self.train_loader):
             src_seqs = src_seqs.to(self.device) # (N, max_source_sequence_pad_length_this_batch)
             tgt_seqs = tgt_seqs.to(self.device) # (N, max_target_sequence_pad_length_this_batch)
             src_seq_lengths = src_seq_lengths.to(self.device) # (N)
@@ -236,7 +236,7 @@ class Trainer:
                 if self.steps % self.args.print_frequency == 0:
                     print('Epoch {0}/{1}-----Batch {2}/{3}-----Step {4}/{5}-----Data Time {data_time.val:.3f} ({data_time.avg:.3f})-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
                           'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, self.epochs, i + 1,  self.train_loader.n_batches, self.steps, self.n_steps, step_time=step_time, data_time=data_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
-                    self.evaluate(src='Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', src_lang='en', tgt_lang='de')
+                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.')
 
                 self.summary_writer.add_scalar('Translation Training Loss', translation_losses.avg, self.steps)
                 self.summary_writer.add_scalar('Training Loss', total_losses.avg, self.steps)
@@ -278,12 +278,12 @@ class Trainer:
             self.summary_writer.add_scalar('Validation Loss', losses.avg, self.steps)
             print("\nValidation loss: %.3f\n\n" % losses.avg)
 
-            self.viz_model(self.steps, model, "Anyone who retains the ability to recognise beauty will never become old.", "Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.", "en", "de")
+            self.viz_model(self.steps, model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
             return losses.avg
 
-    def evaluate(self, src, tgt, src_lang, tgt_lang):
-        best, _ = utils.beam_search_translate(self.args, src, self.model, self.tokenizer, src_lang, tgt_lang, device=self.device, beam_size=4, length_norm_coefficient=0.6)
+    def evaluate(self, src, tgt):
+        best, _ = utils.beam_search_translate(self.args, src, self.model, self.tokenizer, device=self.device, beam_size=4, length_norm_coefficient=0.6)
 
         debug_validate_table = PrettyTable(["Test Source", "Test Prediction", "Test Target"])
         debug_validate_table.add_row([src, best, tgt])
@@ -306,20 +306,20 @@ class Trainer:
 
         return buf
 
-    def viz_model(self, step, model, src, tgt, src_lang, tgt_lang):
+    def viz_model(self, step, model, src, tgt):
         with torch.no_grad():
             model.eval()
 
-            input_sequence = torch.LongTensor(self.tokenizer.encode(src, src_lang, eos=False)).unsqueeze(0).to(self.device) # (1, input_sequence_length)
-            input_tokens = [self.tokenizer.decode([id.item()], src_lang)[0] for id in input_sequence.squeeze(0)]
+            input_sequence = torch.LongTensor(self.tokenizer.encode(src, eos=False)).unsqueeze(0).to(self.device) # (1, input_sequence_length)
+            input_tokens = [self.tokenizer.decode([id.item()])[0] for id in input_sequence.squeeze(0)]
             input_sequence_length = input_sequence.size(1)
 
             # pad input sequence to args.maxlen
             if self.args.use_infinite_attention or True:
                 input_sequence = torch.cat([input_sequence, torch.zeros([1, self.args.maxlen - input_sequence.size(1)], dtype=torch.long, device=input_sequence.device)], dim=1)
 
-            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt, tgt_lang, eos=True)).unsqueeze(0).to(self.device) # (1, target_sequence_length)
-            target_tokens = [self.tokenizer.decode([id.item()], tgt_lang)[0] for id in target_sequence.squeeze(0)]
+            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt, eos=True)).unsqueeze(0).to(self.device) # (1, target_sequence_length)
+            target_tokens = [self.tokenizer.decode([id.item()])[0] for id in target_sequence.squeeze(0)]
             target_sequence_length = target_sequence.size(1)
 
             # pad target sequence to args.maxlen

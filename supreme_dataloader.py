@@ -3,11 +3,11 @@ from random import shuffle
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 
-import glob
 import codecs
-import os
+import glob
 import random
 import torch
+import utils
 import youtokentome
 
 class SequenceLoader(object):
@@ -21,34 +21,7 @@ class SequenceLoader(object):
         # Load BPE model
         self.tokenizer = tokenizer
 
-        self.src_tgt_pairs = {}
-        for data_file in self.data_files:
-            print(f"data_file: {data_file}")
-            file_name, single = data_file.split(".")
-            split, pair = file_name.split("_")
-            src, tgt = pair.split("-")
-
-            if pair not in self.src_tgt_pairs.keys():
-                self.src_tgt_pairs[pair] = {'src': None, 'tgt': None }
-
-            self.src_tgt_pairs[pair]['src' if src == single else 'tgt'] = data_file
-
-            """
-            data structure of src_tgt_pairs:
-            {
-                'en-de': {
-                    'src': 'train_en-de.en',
-                    'tgt': 'train_en-de.de'
-                },
-                'de-en': {
-                    'src': 'train_de-en.de',
-                    'tgt': 'train_de-en.en'
-                },
-                ...
-            }
-            """
-
-        print(f"src_tgt_pairs: {self.src_tgt_pairs}")
+        self.src_tgt_pairs = utils.get_structured_data_paths(glob.glob('data/train_*'))
 
         self.load_data()
 

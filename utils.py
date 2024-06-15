@@ -21,6 +21,98 @@ import torch.nn.functional as F
 import yaml
 import youtokentome
 
+VOCAB_SIZES = {
+    'afr': 4096,
+    'amh': 6144,
+    'cs': 6144,
+    'de': 16384,
+    'en': 32768,
+    'et': 3072,
+    'fi': 8192,
+    'fr': 16384,
+    'fuv': 3072,
+    'gu': 1024,
+    'hau': 4096,
+    'hi': 1024,
+    'ibo': 3072,
+    'ja': 24576,
+    'kam': 2048,
+    'kin': 4096,
+    'kk': 1024,
+    'lin': 4096,
+    'lt': 4096,
+    'lug': 2048,
+    'luo': 4096,
+    'lv': 1024,
+    'nso': 4096,
+    'nya': 4096,
+    'orm': 4096,
+    'ro': 1024,
+    'ru': 10240,
+    'sna': 4096,
+    'som': 4096,
+    'ssw': 2048,
+    'swh': 8192,
+    'tr': 1024,
+    'tsn': 4096,
+    'tso': 4096,
+    'umb': 2048,
+    'vi': 12288,
+    'wol': 3072,
+    'xho': 20480,
+    'yor': 10240,
+    'zh': 32768,
+    'zul': 4096,
+    'con': 10240
+}
+
+# first 41 tokens are reserved for the <lang> tags at the beginning of src and tgt sequences
+# from then on, each language's tokenizer handles the special tokens (pad, unk, bos, eos) on their own
+TOTAL_VOCAB_SIZE = len(VOCAB_SIZES) + sum(VOCAB_SIZES.values())
+
+def get_language_tokenizer_offset(lang):
+    offset = len(VOCAB_SIZES)
+    for l, vocab_size in VOCAB_SIZES.items():
+        if l == lang:
+            return offset
+        offset += vocab_size
+    raise ValueError(f"Language {lang} not found in VOCAB_SIZES")
+
+def get_language_indicator_index(lang):
+    return list(VOCAB_SIZES.keys()).index(lang)
+
+def get_language_indicator_from_index(index):
+    return list(VOCAB_SIZES.keys())[index]
+
+def get_structured_data_paths(data_files):
+    """
+    data structure of src_tgt_pairs:
+    {
+        'en-de': {
+            'src': 'train_en-de.en',
+            'tgt': 'train_en-de.de'
+        },
+        'de-en': {
+            'src': 'train_de-en.de',
+            'tgt': 'train_de-en.en'
+        },
+        ...
+    }
+    """
+    src_tgt_pairs = {}
+    for data_file in data_files:
+        print(f"data_file: {data_file}")
+        file_name, single = data_file.split(".")
+        split, pair = file_name.split("_")
+        src, tgt = pair.split("-")
+
+        if pair not in src_tgt_pairs.keys():
+            src_tgt_pairs[pair] = {'src': None, 'tgt': None }
+
+        src_tgt_pairs[pair]['src' if src == single else 'tgt'] = data_file
+
+    return src_tgt_pairs
+
 def init_transformer_weights(args, model, tie_embeddings=True):
     # Glorot uniform initialization with a gain of self.args.init_weights_gain
     for p in model.parameters():
@@ -166,7 +258,7 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, device, beam_size=4, length_norm_coefficient=0.6):
+def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, length_norm_coefficient=0.6):
     """
     Translates a source language sequence to the target language, with beam search decoding.
 
@@ -182,14 +274,10 @@ def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, devic
         # Minimum number of hypotheses to complete
         n_completed_hypotheses = min(k, 10)
 
-        # Vocab size
-        tgt_vocab_size = tokenizer.total_vocab_size()
-
         # If the source sequence is a string, convert to a tensor of IDs
         if isinstance(src, str):
             encoder_sequences = tokenizer.encode(
                 src,
-                lang=src_lang,
                 output_type=youtokentome.OutputType.ID,
                 bos=False,
                 eos=False
@@ -244,8 +332,8 @@ def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, devic
             top_k_hypotheses_scores, unrolled_indices = scores.view(-1).topk(k, 0, True, True) # (k)
 
             # Convert unrolled indices to actual indices of the scores tensor which yielded the best scores
-            prev_word_indices = unrolled_indices // tgt_vocab_size # (k)
-            next_word_indices = unrolled_indices % tgt_vocab_size # (k)
+            prev_word_indices = unrolled_indices // TOTAL_VOCAB_SIZE # (k)
+            next_word_indices = unrolled_indices % TOTAL_VOCAB_SIZE # (k)
 
             # Construct the the new top k hypotheses from these indices
             top_k_hypotheses = torch.cat([hypotheses[prev_word_indices], next_word_indices.unsqueeze(1)], dim=1) # (k, step + 1)
@@ -280,7 +368,7 @@ def beam_search_translate(args, src, model, tokenizer, src_lang, tgt_lang, devic
 
         # Decode the hypotheses
         all_hypotheses = list()
-        for i, h in enumerate(tokenizer.decode_all(completed_hypotheses, [tgt_lang for _ in range(len(completed_hypotheses))], ignore_ids=[0, 2, 3])):
+        for i, h in enumerate(tokenizer.decode_all(completed_hypotheses, ignore_ids=[0, 2, 3])):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 
         # Find the best scoring completed hypothesis

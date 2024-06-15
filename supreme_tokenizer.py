@@ -1,12 +1,12 @@
 import glob
 import youtokentome as yttm
+import utils
 
 class SupremeTokenizer:
-    def __init__(self, vocab_size):
+    def __init__(self):
         # dict of language abbreviation to tokenizer
         self.langs = []
         self.tokenizers = {}
-        self.vocab_size = vocab_size
 
         all_tokenizer_model_files = glob.glob("tokenizers/*.model")
 
@@ -16,35 +16,46 @@ class SupremeTokenizer:
             self.langs.append(lang)
 
         self.langs = sorted(self.langs)
+        self.num_langs = len(self.langs)
+        self.num_special_tokens = 4 + self.num_langs
 
-    def encode(self, seq, lang, **kwargs):
-        local_tokenization = self.tokenizers[lang].encode(seq, **kwargs)
+    def encode(self, seq, **kwargs):
+        lang_prefix = ''
 
-        global_tokenization = []
+        for c in seq:
+            if c == '>':
+                break
+            lang_prefix += c
+
+        seq = seq[len(lang_prefix):]
+
+        local_tokenization = self.tokenizers[lang_prefix].encode(seq, **kwargs)
+
+        tokenizer_offset = utils.get_language_tokenizer_offset(lang_prefix)
+
+        global_tokenization = [utils.get_language_indicator_index(lang_prefix)]
         for token in local_tokenization:
-            if token in [0, 1, 2, 3]:
-                global_tokenization.append(token)
-            else:
-                global_tokenization.append(token + (self.vocab_size * self.langs.index(lang)))
+            global_tokenization.append(token + tokenizer_offset)
 
         return global_tokenization
     
-    def encode_all(self, seqs, langs, **kwargs):
-        return [self.encode(seq, lang, **kwargs) for seq, lang in zip(seqs, langs)]
+    def encode_all(self, seqs, **kwargs):
+        return [self.encode(seq, **kwargs) for seq in seqs]
     
-    def decode(self, seq, lang, **kwargs):
+    def decode(self, seq, **kwargs):
+        lang_prefix_id = seq[0]
+
+        seq = seq[1:]
+
+        lang_prefix = utils.get_language_indicator_from_index(lang_prefix_id)
+        tokenizer_offset = utils.get_language_tokenizer_offset(lang_prefix)
+
         local_seq = []
         for token in seq:
-            if token in [0, 1, 2, 3]:
-                local_seq.append(token)
-            else:
-                local_seq.append(token - (self.vocab_size * self.langs.index(lang)))
+            local_seq.append(token - tokenizer_offset)
 
-        return self.tokenizers[lang].decode(local_seq, **kwargs)
+        return [f"<{lang_prefix}>"] + self.tokenizers[lang_prefix].decode(local_seq, **kwargs)
     
-    def decode_all(self, seqs, langs, **kwargs):
-        return [self.decode(seq, lang, **kwargs) for seq, lang in zip(seqs, langs)]
+    def decode_all(self, seqs, **kwargs):
+        return [self.decode(seq, **kwargs) for seq in seqs]
     
-    def total_vocab_size(self):
-        # 4 is for the special tokens <pad>, <unk>, <bos>, <eos>
-        return (self.vocab_size * len(self.tokenizers)) + 4
