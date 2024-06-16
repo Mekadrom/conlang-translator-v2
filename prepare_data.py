@@ -405,28 +405,35 @@ def train_tokenizers(output_dir, n_threads=-1):
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
 
-def prune_data_files(datafiles, minlen, maxlen):
-    for datafile in datafiles:
-        with open(datafile, 'r') as f:
-            data = f.readlines()
+def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
+    for src_datafile, tgt_datafile in zip(src_datafiles, tgt_datafiles):
+        with open(src_datafile, 'r') as src_file, open(tgt_datafile, 'r') as tgt_file:
+            src_data = src_file.readlines()
+            tgt_data = tgt_file.readlines()
 
-        # move datafile to datafile.bak
-        shutil.move(datafile, datafile + '.bak')
+        shutil.move(src_datafile, src_datafile + '.bak')
+        shutil.move(tgt_datafile, tgt_datafile + '.bak')
 
-        with open(datafile, 'w') as f:
+        with open(src_datafile, 'w') as src_file, open(tgt_datafile, 'w') as tgt_file:
             tokenizer = supreme_tokenizer.SupremeTokenizer()
 
-            for line in tqdm(data):
-                if line.startswith("<"):
-                    token_len = len(tokenizer.encode(line.strip()))
-                    if token_len <= maxlen and token_len >= minlen:
-                        f.write(line)
+            for src_line, tgt_line in tqdm(zip(src_data, tgt_data)):
+                if src_line.startswith("<") and tgt_line.startswith("<"):
+                    src_token_len = len(tokenizer.encode(src_line.strip()))
+                    tgt_token_len = len(tokenizer.encode(tgt_line.strip()))
+
+                    min_token_len = min(src_token_len, tgt_token_len)
+                    max_token_len = max(src_token_len, tgt_token_len)
+
+                    if max_token_len <= maxlen and min_token_len >= minlen:
+                        src_file.write(src_line)
+                        tgt_file.write(tgt_line)
 
 def prune_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_*') + glob.glob('data/validation_*'), minlen, maxlen)
+    prune_data_files(glob.glob('data/train_*.src') + glob.glob('data/validation_*.src'), glob.glob('data/train_*.tgt') + glob.glob('data/validation_*.tgt'), minlen, maxlen)
 
 def prune_collated_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_collated_*') + glob.glob('data/validation_collated_*'), minlen, maxlen)
+    prune_data_files(glob.glob('data/train_collated_*.src') + glob.glob('data/validation_collated_*.src'), glob.glob('data/train_collated_*.tgt') + glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
 
 def collate_dataset(split, n_collated_files):
     # append all training data to n_collated_files files
