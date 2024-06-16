@@ -406,7 +406,14 @@ def train_tokenizers(output_dir, n_threads=-1):
         os.remove(f'tokenizer_{lang}.txt')
 
 def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
+    src_datafiles = sorted(src_datafiles)
+    tgt_datafiles = sorted(tgt_datafiles)
+
+    print(f"Pruning data files: {src_datafiles} and {tgt_datafiles}...")
+
     for src_datafile, tgt_datafile in zip(src_datafiles, tgt_datafiles):
+        print(f"Pruning {src_datafile} and {tgt_datafile}...")
+
         with open(src_datafile, 'r') as src_file, open(tgt_datafile, 'r') as tgt_file:
             src_data = src_file.readlines()
             tgt_data = tgt_file.readlines()
@@ -414,10 +421,18 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
         shutil.move(src_datafile, src_datafile + '.bak')
         shutil.move(tgt_datafile, tgt_datafile + '.bak')
 
-        with open(src_datafile, 'w') as src_file, open(tgt_datafile, 'w') as tgt_file:
+        pre_src_data_len = len(src_data)
+        pre_tgt_data_len = len(tgt_data)
+
+        if pre_src_data_len != pre_tgt_data_len:
+            raise ValueError(f"Data files {src_datafile} and {tgt_datafile} are not the same length")
+        
+        prune_count = 0
+
+        with open(src_datafile, 'a') as src_file, open(tgt_datafile, 'a') as tgt_file:
             tokenizer = supreme_tokenizer.SupremeTokenizer()
 
-            for src_line, tgt_line in tqdm(zip(src_data, tgt_data)):
+            for src_line, tgt_line in tqdm(zip(src_data, tgt_data), total=pre_src_data_len, desc=f"Pruning {src_datafile} and {tgt_datafile}..."):
                 if src_line.startswith("<") and tgt_line.startswith("<"):
                     src_token_len = len(tokenizer.encode(src_line.strip()))
                     tgt_token_len = len(tokenizer.encode(tgt_line.strip()))
@@ -426,14 +441,20 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
                     max_token_len = max(src_token_len, tgt_token_len)
 
                     if max_token_len <= maxlen and min_token_len >= minlen:
-                        src_file.write(src_line)
-                        tgt_file.write(tgt_line)
+                        src_file.write(f"{src_line}")
+                        tgt_file.write(f"{tgt_line}")
+                    else:
+                        prune_count += 1
+
+        print(f"Pruned {prune_count} lines from {src_datafile} and {tgt_datafile}. Total # of lines should now be {pre_src_data_len - prune_count}.")
 
 def prune_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_*.src') + glob.glob('data/validation_*.src'), glob.glob('data/train_*.tgt') + glob.glob('data/validation_*.tgt'), minlen, maxlen)
+    prune_data_files(glob.glob('data/train_*.src'), glob.glob('data/train_*.tgt'), minlen, maxlen)
+    prune_data_files(glob.glob('data/validation_*.src'), glob.glob('data/validation_*.tgt'), minlen, maxlen)
 
 def prune_collated_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_collated_*.src') + glob.glob('data/validation_collated_*.src'), glob.glob('data/train_collated_*.tgt') + glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
+    prune_data_files(glob.glob('data/train_collated_*.src'), glob.glob('data/train_collated_*.tgt'), minlen, maxlen)
+    prune_data_files(glob.glob('data/validation_collated_*.src'), glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
 
 def collate_dataset(split, n_collated_files):
     # append all training data to n_collated_files files

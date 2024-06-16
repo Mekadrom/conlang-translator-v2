@@ -96,12 +96,12 @@ class SequenceLoader(object):
             raise StopIteration
 
         # Tokenize using BPE model to word IDs
-        source_data = self.src_tokenizer.encode(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
-        target_data = self.tgt_tokenizer.encode(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+        target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
 
         # Convert source and target sequences as padded tensors
-        source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=self.src_tokenizer.subword_to_id('<PAD>'))
-        target_data = pad_sequence(sequences=[torch.LongTensor(t) for t in target_data], batch_first=True, padding_value=self.tgt_tokenizer.subword_to_id('<PAD>'))
+        source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)
+        target_data = pad_sequence(sequences=[torch.LongTensor(t) for t in target_data], batch_first=True, padding_value=0)
 
         if self.pad_to_length is not None:
             source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)

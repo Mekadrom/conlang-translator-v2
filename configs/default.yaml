@@ -1,17 +1,17 @@
 d_model: 1024
-n_gqa_groups: 4
-n_heads: 32
+n_gqa_groups: 2
+n_heads: 24
 d_queries: 256
 d_values: 256
 d_inner: 4096
 use_infinite_attention: false
 use_moe: false
-n_experts: 0
-moe_top_k: 0
-moe_diversity_loss_coefficient: 0.0
-moe_diversity_inclusion_epoch: 0
-n_encoder_layers: 16
-n_decoder_layers: 16
+n_experts: 2
+moe_top_k: 1
+moe_diversity_loss_coefficient: 1.0
+moe_diversity_inclusion_epoch: 11
+n_encoder_layers: 12
+n_decoder_layers: 12
 dropout: 0.3
 norm_type: layer
 norm_eps: 0.00001
@@ -23,7 +23,7 @@ init_weights_gain: 1.0
 use_admin: false
 
 positional_encoding_type: rotary
-positional_encoding_dim: 64
+positional_encoding_dim: 128
 learnable_positional_encoding: false
 
 encoder_param_sharing_type: cycle-rev
