@@ -5,7 +5,9 @@ import argparse
 import glob
 import os
 import random
+import shutil
 import utils
+import supreme_tokenizer
 import youtokentome as yttm
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
@@ -35,7 +37,6 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
 
                 src_data_file.write(f"<{src_lang}>{example['translation'][src_lang]}\n")
                 tgt_data_file.write(f"<{tgt_lang}>{example['translation'][tgt_lang]}\n")
-
 
     # datasets have to be paired up
     if manual_split:
@@ -404,17 +405,28 @@ def train_tokenizers(output_dir, n_threads=-1):
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
 
-def prune_data(maxlen):
-    for datafile in glob.glob('data/train_*') + glob.glob('data/validation_*'):
+def prune_data_files(datafiles, minlen, maxlen):
+    for datafile in datafiles:
         with open(datafile, 'r') as f:
             data = f.readlines()
 
-        with open(datafile, 'w') as f:
-            tokenizer = yttm.BPE(f'tokenizers/tokenizer_{datafile.split(".")[-1]}.model')
+        # move datafile to datafile.bak
+        shutil.move(datafile, datafile + '.bak')
 
-            for line in data:
-                if len(tokenizer.encode(line.strip())) <= maxlen:
-                    f.write(line)
+        with open(datafile, 'w') as f:
+            tokenizer = supreme_tokenizer.SupremeTokenizer()
+
+            for line in tqdm(data):
+                if line.startswith("<"):
+                    token_len = len(tokenizer.encode(line.strip()))
+                    if token_len <= maxlen and token_len >= minlen:
+                        f.write(line)
+
+def prune_data(minlen, maxlen):
+    prune_data_files(glob.glob('data/train_*') + glob.glob('data/validation_*'), minlen, maxlen)
+
+def prune_collated_data(minlen, maxlen):
+    prune_data_files(glob.glob('data/train_collated_*') + glob.glob('data/validation_collated_*'), minlen, maxlen)
 
 def collate_dataset(split, n_collated_files):
     # append all training data to n_collated_files files
@@ -445,8 +457,11 @@ if __name__ == '__main__':
     argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
     argparser.add_argument('--train_n_threads', default=-1, type=int, help='Number of threads to use for training tokenizers')
     argparser.add_argument('--prune', action='store_true', help='Prune the data')
+    argparser.add_argument('--minlen', type=int, default=3, help='Minimum length for pruning')
+    argparser.add_argument('--maxlen', type=int, default=512, help='Maximum length for pruning')
     argparser.add_argument('--collate', action='store_true', help='Collate the data')
     argparser.add_argument('--n_collated_files', default=10, type=int, help='Number of collated files to create')
+    argparser.add_argument('--prune_collated', action='store_true', help='Prune the collated data')
 
     args = argparser.parse_args()
 
@@ -457,7 +472,10 @@ if __name__ == '__main__':
         train_tokenizers('tokenizers', n_threads=args.train_n_threads)
 
     if args.prune:
-        prune_data(maxlen=256)
+        prune_data(minlen=args.minlen, maxlen=args.maxlen)
 
     if args.collate:
         collate_data(args.n_collated_files)
+
+    if args.prune_collated:
+        prune_collated_data(minlen=args.minlen, maxlen=args.maxlen)

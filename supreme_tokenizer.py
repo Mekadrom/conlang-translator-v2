@@ -22,6 +22,9 @@ class SupremeTokenizer:
     def encode(self, seq, **kwargs):
         lang_prefix = ''
 
+        if len(seq) < 5:
+            return [1] # return <UNK> token
+
         if seq[3] == '>':
             lang_prefix = seq[:4]
             seq = seq[4:]
@@ -50,6 +53,9 @@ class SupremeTokenizer:
         lang_prefix_id = seq[0]
 
         seq = seq[1:]
+
+        if len(seq) == 0:
+            return "<UNK>"
 
         lang_prefix = utils.get_language_indicator_from_index(lang_prefix_id)
         tokenizer_offset = utils.get_language_tokenizer_offset(lang_prefix)

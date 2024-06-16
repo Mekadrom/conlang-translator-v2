@@ -16,7 +16,7 @@ dropout: 0.3
 norm_type: layer
 norm_eps: 0.00001
 
-maxlen: 256
+maxlen: 512
 
 init_weights_from: glorot_uniform
 init_weights_gain: 1.0
