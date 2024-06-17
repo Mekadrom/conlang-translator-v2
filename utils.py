@@ -22,51 +22,51 @@ import yaml
 import youtokentome
 
 VOCAB_SIZES = {
-    'afr': 4096,
-    'amh': 6144,
-    'cs': 6144,
-    'de': 16384,
-    'en': 32768,
-    'et': 3072,
-    'fi': 8192,
-    'fr': 16384,
-    'fuv': 3072,
+    'afr': 8192,
+    'amh': 3072,
+    'cs': 3072,
+    'de': 8192,
+    'en': 16384,
+    'et': 2048,
+    'fi': 4096,
+    'fr': 7168,
+    # 'fuv': 3072,
     'gu': 1024,
-    'hau': 4096,
+    # 'hau': 4096,
     'hi': 1024,
-    'ibo': 3072,
-    'ja': 24576,
-    'kam': 2048,
-    'kin': 4096,
+    # 'ibo': 3072,
+    'ja': 12288,
+    # 'kam': 2048,
+    # 'kin': 4096,
     'kk': 1024,
-    'lin': 4096,
-    'lt': 4096,
-    'lug': 2048,
-    'luo': 4096,
+    # 'lin': 4096,
+    'lt': 3072,
+    # 'lug': 2048,
+    # 'luo': 4096,
     'lv': 1024,
-    'nso': 4096,
-    'nya': 4096,
-    'orm': 4096,
+    # 'nso': 4096,
+    # 'nya': 4096,
+    # 'orm': 4096,
     'ro': 1024,
-    'ru': 10240,
-    'sna': 4096,
-    'som': 4096,
-    'ssw': 2048,
-    'swh': 8192,
+    'ru': 6144,
+    # 'sna': 4096,
+    'som': 2048,
+    # 'ssw': 2048,
+    'swh': 6144,
     'tr': 1024,
-    'tsn': 4096,
-    'tso': 4096,
-    'umb': 2048,
-    'vi': 12288,
-    'wol': 3072,
-    'xho': 20480,
-    'yor': 10240,
-    'zh': 32768,
-    'zul': 4096,
+    # 'tsn': 4096,
+    'tso': 2048,
+    # 'umb': 2048,
+    'vi': 7168,
+    # 'wol': 3072,
+    'xho': 10240,
+    # 'yor': 10240,
+    'zh': 15360,
+    'zul': 2048,
     'con': 10240
 }
 
-# first 41 tokens are reserved for the <lang> tags at the beginning of src and tgt sequences
+# first n tokens are reserved for the <lang> tags at the beginning of src and tgt sequences
 # from then on, each language's tokenizer handles the special tokens (pad, unk, bos, eos) on their own
 TOTAL_VOCAB_SIZE = len(VOCAB_SIZES) + sum(VOCAB_SIZES.values())
 
@@ -418,23 +418,13 @@ def sacrebleu_evaluate(args, run_dir, tokenizer, model, device, sacrebleu_in_pyt
 
     bleu_score = None
 
-    if test_loader is None:
-        val_data_files = glob.glob(f"data/validation_*")
-        test_loader = SequenceLoader(
-            tokenizer=tokenizer,
-            data_files=val_data_files,
-            tokens_in_batch=args.tokens_in_batch,
-            pad_to_length=args.maxlen
-        )
-        test_loader.create_batches()
-
     # Evaluate
     with torch.no_grad():
         hypotheses = list()
         references = list()
-        for i, (source_sequence, target_sequence, source_sequence_length, target_sequence_length, src_lang, tgt_lang) in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
-            hypotheses.append(beam_search_translate(args, src=source_sequence, tokenizer=tokenizer, src_lang=src_lang, tgt_lang=tgt_lang, device=device, model=model, beam_size=4, length_norm_coefficient=0.6)[0])
-            references.extend(tokenizer.decode_all(target_sequence.tolist(), tgt_lang, ignore_ids=[0, 2, 3]))
+        for i, (source_sequence, target_sequence, source_sequence_length, target_sequence_length) in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
+            hypotheses.append(beam_search_translate(args, src=source_sequence, tokenizer=tokenizer, device=device, model=model, beam_size=4, length_norm_coefficient=0.6)[0])
+            references.extend(tokenizer.decode_all(target_sequence.tolist(), ignore_ids=[0, 2, 3]))
 
         if sacrebleu_in_python:
             print("\n13a tokenization, cased:\n")

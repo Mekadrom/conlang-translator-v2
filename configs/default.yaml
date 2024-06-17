@@ -17,8 +17,9 @@ norm_type: layer
 norm_eps: 0.00001
 
 use_amp: false
+dtype: float32
 
-maxlen: 512
+maxlen: 160
 
 init_weights_from: glorot_uniform
 init_weights_gain: 1.0
@@ -34,8 +35,8 @@ m_encoder_independent_layers: 4
 m_decoder_independent_layers: 4
 activation_function: swiglu
 
-tokens_in_batch: 1000
-target_tokens_per_batch: 26000
+tokens_in_batch: 5000
+target_tokens_per_batch: 25000
 n_steps: 100000
 warmup_steps: 8000
 beta1: 0.9
@@ -71,3 +72,5 @@ early_stop: false
 early_stop_patience: 3
 early_stop_min_delta: 0.0
 early_stop_num_latest_checkpoints_to_avg: 3
+
+n_collated_files: 20

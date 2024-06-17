@@ -39,6 +39,9 @@ class EarlyStopping:
 
 args, unk = utils.get_args()
 
+setattr(args, 'device', torch.device("cuda" if torch.cuda.is_available() and args.device == 'cuda' else "cpu"))
+setattr(args, 'dtype', torch.float32 if args.dtype == 'float32' else torch.float16)
+
 run_dir = os.path.join('runs', args.run_name)
 if not os.path.exists(run_dir):
     os.makedirs(run_dir)
@@ -48,7 +51,7 @@ summary_writer = SummaryWriter(log_dir=run_dir)
 tokenizer = supreme_tokenizer.SupremeTokenizer()
 
 model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
-model = model.to(args.device)
+model = model.to(device=args.device, dtype=args.dtype, non_blocking=True)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), eps=args.epsilon)
 
@@ -126,7 +129,7 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
     return train_loader, val_loader
 
 class Trainer:
-    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, device, run_dir, summary_writer, early_stopping=None):
+    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, device, dtype, run_dir, summary_writer, early_stopping=None):
         self.args = args
         self.tokenizer = tokenizer
         self.model = model
@@ -134,6 +137,7 @@ class Trainer:
         self.optimizer = optimizer
         self.criterion = criterion
         self.device = device
+        self.dtype = dtype
         self.run_dir = run_dir
         self.summary_writer = summary_writer
         self.early_stopping = early_stopping
@@ -143,12 +147,14 @@ class Trainer:
         else:
             self.scaler = None
 
+        self.data_idx = 0
+
     def train(self, model_name_prefix=''):
         self.steps = 0
         self.start_epoch = self.args.start_epoch
 
-        self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
-        self.epochs = (self.args.n_steps // ((self.train_loader.n_batches * 10) // self.args.batches_per_step)) + 1
+        self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, self.data_idx, pad_to_length=args.maxlen)
+        self.epochs = (self.args.n_steps // ((self.train_loader.n_batches * args.n_collated_files) // self.args.batches_per_step)) + 1
 
         print(f"Training for {self.epochs} epochs...")
         start = time.time()
@@ -160,7 +166,7 @@ class Trainer:
             self.train_epoch(self.compiled_model, epoch=epoch)
 
             self.val_loader.create_batches()
-            val_loss_avg = self.validate_epoch(self.model)
+            val_loss_avg = self.validate_epoch(self.model, epoch=epoch)
 
             utils.save_checkpoint(epoch, self.model, self.optimizer, prefix=f"{self.run_dir}/{model_name_prefix}")
 
@@ -174,7 +180,12 @@ class Trainer:
                     self.validate_epoch(self.model)
                     break
 
-            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, random.randint(0, 9), pad_to_length=args.maxlen)
+            self.data_idx += 1
+
+            if self.data_idx >= args.n_collated_files - 1:
+                self.data_idx = 0
+
+            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, self.data_idx, pad_to_length=args.maxlen)
 
         time_taken = time.time() - start
 
@@ -187,9 +198,10 @@ class Trainer:
         print(f"Training complete. Evaluating one last time...")
         self.val_loader.create_batches()
         self.validate_epoch(self.model)
+        self.val_loader.create_batches()
 
         print("Training complete. Scoring with sacrebleu...")
-        print(utils.sacrebleu_evaluate(self.args, self.run_dir, self.tokenizer, self.model, device=self.device, sacrebleu_in_python=True, test_loader=self.val_loader).score, time_taken, utils.count_parameters(self.model))
+        print(utils.sacrebleu_evaluate(self.args, self.run_dir, self.tokenizer, self.model, device=self.device, sacrebleu_in_python=True, test_loader=self.val_loader).score, time_taken, utils.count_parameters(self.model), self.val_loader)
 
         if self.args.start_epoch == 0:
             print("Visualizing attention weights before training...")
@@ -221,7 +233,7 @@ class Trainer:
 
         loss = translation_loss + moe_diversity_loss
 
-        return loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss
+        return loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss
 
     def train_epoch(self, model, epoch):
         # training mode enables dropout
@@ -250,9 +262,9 @@ class Trainer:
 
             if self.scaler is not None:
                 with autocast():
-                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
             else:
-                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
             
             if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
                 encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
@@ -302,7 +314,7 @@ class Trainer:
                     utils.save_checkpoint(epoch, self.model, self.optimizer, prefix=f"{self.run_dir}/step{str(self.steps)}_")
             start_data_time = time.time()
     
-    def validate_epoch(self, model):
+    def validate_epoch(self, model, epoch):
         model.eval()
 
         with torch.no_grad():
@@ -316,12 +328,11 @@ class Trainer:
                 src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
                 tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
 
-                predicted_sequences = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)[0] # (N, max_target_sequence_pad_length_this_batch, vocab_size)
-
-                # Note: If the target sequence is "<BOS> w1 w2 ... wN <EOS> <PAD> <PAD> <PAD> <PAD> ..."
-                # we should consider only "w1 w2 ... wN <EOS>" as <BOS> is not predicted
-                # Therefore, pads start after (length - 1) positions
-                loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+                if self.scaler is not None:
+                    with autocast():
+                        loss, _, _, _, _ = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                else:
+                    loss, _, _, _, _ = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
 
                 losses.update(loss.item(), (tgt_seq_lengths - 1).sum().item())
 
@@ -360,7 +371,7 @@ class Trainer:
         with torch.no_grad():
             model.eval()
 
-            input_sequence = torch.LongTensor(self.tokenizer.encode(src, eos=False)).unsqueeze(0).to(self.device) # (1, input_sequence_length)
+            input_sequence = torch.LongTensor(self.tokenizer.encode(src, eos=False)).unsqueeze(0).to(self.device, self.dtype, False) # (1, input_sequence_length)
             input_tokens = [self.tokenizer.decode([id.item()])[0] for id in input_sequence.squeeze(0)]
             input_sequence_length = input_sequence.size(1)
 
@@ -368,7 +379,7 @@ class Trainer:
             if self.args.use_infinite_attention or True:
                 input_sequence = torch.cat([input_sequence, torch.zeros([1, self.args.maxlen - input_sequence.size(1)], dtype=torch.long, device=input_sequence.device)], dim=1)
 
-            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt, eos=True)).unsqueeze(0).to(self.device) # (1, target_sequence_length)
+            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt, eos=True)).unsqueeze(0).to(self.device, self.dtype, False) # (1, target_sequence_length)
             target_tokens = [self.tokenizer.decode([id.item()])[0] for id in target_sequence.squeeze(0)]
             target_sequence_length = target_sequence.size(1)
 
@@ -424,5 +435,5 @@ class Trainer:
                 target_sequence, _ = decoder_layer.fcn(target_sequence) # (N, pad_length, d_model)
 
 if __name__ == "__main__":
-    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, args.device, run_dir, summary_writer, early_stopping)
+    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, args.device, args.dtype, run_dir, summary_writer, early_stopping)
     trainer.train()
