@@ -308,7 +308,7 @@ class EncoderLayer(nn.Module):
         self.fcn = PositionWiseFCNetwork(args, norm=norm)
 
     def forward(self, encoder_sequences, key_padding_mask):
-        self_attn = self.self_attn(encoder_sequences, encoder_sequences, encoder_sequences, key_padding_mask)
+        self_attn, _ = self.self_attn(encoder_sequences, encoder_sequences, encoder_sequences, key_padding_mask)
 
         encoder_sequences = self.self_attn_residual(encoder_sequences, self_attn)
 
@@ -437,7 +437,6 @@ class DecoderLayer(nn.Module):
         self.args = args
 
         self.self_attn = MultiHeadAttention(args, self_attn=True, in_decoder=True, norm=norm)
-
         self.cross_attn = MultiHeadAttention(args, self_attn=False, in_decoder=True, norm=norm)
 
         if args.use_admin:
@@ -452,12 +451,11 @@ class DecoderLayer(nn.Module):
         self.fcn = PositionWiseFCNetwork(args, norm=norm)
 
     def forward(self, decoder_sequences, encoder_sequences, src_key_padding_mask, tgt_key_padding_mask):
-        self_attn = self.self_attn(decoder_sequences, decoder_sequences, decoder_sequences, tgt_key_padding_mask)
+        self_attn, _ = self.self_attn(decoder_sequences, decoder_sequences, decoder_sequences, tgt_key_padding_mask)
         decoder_sequences = self.self_attn_residual(decoder_sequences, self_attn)
 
-        if self.cross_attn is not None:
-            cross_attn = self.cross_attn(decoder_sequences, encoder_sequences, encoder_sequences, src_key_padding_mask)
-            decoder_sequences = self.cross_attn_residual(decoder_sequences, cross_attn)
+        cross_attn, _ = self.cross_attn(decoder_sequences, encoder_sequences, encoder_sequences, src_key_padding_mask)
+        decoder_sequences = self.cross_attn_residual(decoder_sequences, cross_attn)
 
         fcn, gating_variances = self.fcn(decoder_sequences)
         

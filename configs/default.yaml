@@ -16,6 +16,8 @@ dropout: 0.3
 norm_type: layer
 norm_eps: 0.00001
 
+use_amp: false
+
 maxlen: 512
 
 init_weights_from: glorot_uniform
@@ -32,7 +34,7 @@ m_encoder_independent_layers: 4
 m_decoder_independent_layers: 4
 activation_function: swiglu
 
-tokens_in_batch: 2000
+tokens_in_batch: 1000
 target_tokens_per_batch: 26000
 n_steps: 100000
 warmup_steps: 8000

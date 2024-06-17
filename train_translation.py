@@ -2,6 +2,7 @@ from criteria.labelsmooth import LabelSmoothedCE
 from dataloader import SequenceLoader
 from modules import transformer
 from prettytable import PrettyTable
+from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -137,6 +138,11 @@ class Trainer:
         self.summary_writer = summary_writer
         self.early_stopping = early_stopping
 
+        if 'use_amp' in args and args.use_amp:
+            self.scaler = GradScaler()
+        else:
+            self.scaler = None
+
     def train(self, model_name_prefix=''):
         self.steps = 0
         self.start_epoch = self.args.start_epoch
@@ -192,6 +198,31 @@ class Trainer:
                 self.model.eval()
                 self.viz_model(0, self.model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
+    def get_criteria(self, epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask):
+        predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+
+        moe_diversity_loss = 0
+        encoder_moe_gating_variances = None
+        decoder_moe_gating_variances = None
+
+        if self.args.moe_diversity_loss_coefficient > 0 and epoch >= self.args.moe_diversity_inclusion_epoch:
+            encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
+            decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
+
+            moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * self.args.moe_diversity_loss_coefficient
+
+            encoder_moe_gating_variances = encoder_moe_gating_variances.item()
+            decoder_moe_gating_variances = decoder_moe_gating_variances.item()
+
+        # Note: If the target sequence is "<BOS> w1 w2 ... wN <EOS> <PAD> <PAD> <PAD> <PAD> ..."
+        # we should consider only "w1 w2 ... wN <EOS>" as <BOS> is not predicted
+        # Therefore, pads start after (length - 1) positions
+        translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+
+        loss = translation_loss + moe_diversity_loss
+
+        return loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss
+
     def train_epoch(self, model, epoch):
         # training mode enables dropout
         model.train()
@@ -217,29 +248,24 @@ class Trainer:
 
             data_time.update(time.time() - start_data_time)
 
-            predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask) # (N, max_target_sequence_pad_length_this_batch, vocab_size)
-
-            if self.args.moe_diversity_loss_coefficient > 0 and epoch >= self.args.moe_diversity_inclusion_epoch:
-                encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
-                decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
-                moe_diversity_loss = (encoder_moe_gating_variances + decoder_moe_gating_variances) / 2
-                encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances.item(), 1)
-                decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances.item(), 1)
-
-                moe_diversity_loss = moe_diversity_loss * self.args.moe_diversity_loss_coefficient
+            if self.scaler is not None:
+                with autocast():
+                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
             else:
-                moe_diversity_loss = 0
-
-            # Note: If the target sequence is "<BOS> w1 w2 ... wN <EOS> <PAD> <PAD> <PAD> <PAD> ..."
-            # we should consider only "w1 w2 ... wN <EOS>" as <BOS> is not predicted
-            # Therefore, pads start after (length - 1) positions
-            translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+            
+            if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
+                encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
+                decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances, 1)
 
             translation_losses.update(translation_loss.item(), (tgt_seq_lengths - 1).sum().item())
 
-            loss = translation_loss + moe_diversity_loss
-
-            (loss / self.args.batches_per_step).backward()
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                (loss / self.args.batches_per_step).backward()
 
             total_losses.update(loss.item(), (tgt_seq_lengths - 1).sum().item())
 
