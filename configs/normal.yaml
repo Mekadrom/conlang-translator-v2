@@ -1,0 +1,20 @@
+d_model: 512
+n_gqa_groups: 1
+n_heads: 8
+d_queries: 64
+d_values: 64
+d_inner: 2048
+use_infinite_attention: false
+use_moe: false
+n_encoder_layers: 6
+n_decoder_layers: 6
+dropout: 0.15
+
+positional_encoding_type: rotary
+positional_encoding_dim: 64
+learnable_positional_encoding: false
+
+encoder_param_sharing_type: none
+decoder_param_sharing_type: none
+m_encoder_independent_layers: 0
+m_decoder_independent_layers: 0
