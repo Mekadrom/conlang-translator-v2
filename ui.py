@@ -90,6 +90,7 @@ with gr.Blocks() as app:
 
                 response_tb = gr.Textbox(label="Response")
                 submit = gr.Button("Submit", variant="primary")
+                refresh = gr.Button("Refresh", variant="secondary")
 
                 def submit_response(example, response):
                     global history
@@ -100,5 +101,6 @@ with gr.Blocks() as app:
                     return get_example(prompt), ""
 
                 submit.click(fn=submit_response, inputs=[example_tb, response_tb], outputs=[example_tb, response_tb], api_name="submit_response")
+                refresh.click(fn=lambda: get_example("simple"), inputs=[], outputs=[example_tb], api_name="refresh_example")
 
 app.launch()

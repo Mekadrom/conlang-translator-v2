@@ -26,7 +26,7 @@ classify_pipe = pipeline(
 generation_args = {
     "max_new_tokens": 500,
     "return_full_text": False,
-    "temperature": 0.7,
+    "temperature": 1.0,
     "do_sample": True,
     "top_k": 50,
     "top_p": 0.95,
@@ -39,10 +39,10 @@ classification_args = {
     "temperature": 0.0,
 }
 
-gen_system_prompt = "You will generate random sentences in English so that a user can translate it into their conlang. The user will ask for simple, intermediate, and advanced sentences. Your output will be diverse but not obscure. Only answer with a single example sentence and nothing more. Do not include any notes to the user."
+gen_system_prompt = "You will generate random sentences in English so that a user can translate it into their conlang. The user will ask for simple, intermediate, and advanced sentences. Your output will be diverse but not too obscure. Only answer with a single example sentence and nothing more. Do not include any notes to the user."
 gen_system_prompt_token_count = len(tokenizer(gen_system_prompt)["input_ids"])
 
-classify_system_prompt = "You will classify the words in a sentence by their part of speech. For each word in a sentence, repeat the word followed by the part of speech in parentheses. For example, 'The (DET) cat (NOUN) is (VERB) cute (ADJ).' Only answer with this format, and nothing more."
+classify_system_prompt = "You will classify the words in a sentence by their part of speech. For each word in the input sentence, repeat the word followed by the part of speech in parentheses. For example, 'The (DET) cat (NOUN) is (VERB) cute (ADJ).' Only answer with this format, and nothing more."
 classify_system_prompt_token_count = len(tokenizer(classify_system_prompt)["input_ids"])
 
 print(f"Generation system prompt token count: {gen_system_prompt_token_count}")
@@ -65,6 +65,9 @@ def submit():
             "role": "assistant",
             "content": entry["example"],
         })
+
+    # truncate history to last 10 entries
+    message_history = message_history[::-1][:min(10, len(message_history))][::-1]
 
     messages = [
         {

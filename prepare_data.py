@@ -79,28 +79,28 @@ def download_base_traindata():
 
     download_dataset("wmt/wmt14", "hi", "en", "hi-en")
 
-    def eng_to_en(example):
-        return { "translation": { "en" if key == "eng" else key: value for key, value in example['translation'].items() } }
+    # def eng_to_en(example):
+    #     return { "translation": { "en" if key == "eng" else key: value for key, value in example['translation'].items() } }
     
-    def fra_to_fr(example):
-        return { "translation": { "fr" if key == "fra" else key: value for key, value in example['translation'].items() } }
+    # def fra_to_fr(example):
+    #     return { "translation": { "fr" if key == "fra" else key: value for key, value in example['translation'].items() } }
 
-    download_dataset("allenai/wmt22_african", "afr", "en", "afr-eng", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "afr", "som", "afr-som", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "afr", "en", "afr-eng", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "afr", "som", "afr-som", manual_split=True)
 
-    download_dataset("allenai/wmt22_african", "amh", "en", "amh-eng", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "amh", "fr", "amh-fra", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "amh", "en", "amh-eng", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "amh", "fr", "amh-fra", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "amh", "nya", "amh-nya", manual_split=True)
     # download_dataset("allenai/wmt22_african", "amh", "orm", "amh-orm", manual_split=True)
     # download_dataset("allenai/wmt22_african", "amh", "sna", "amh-sna", manual_split=True)
-    download_dataset("allenai/wmt22_african", "amh", "som", "amh-som", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "amh", "som", "amh-som", manual_split=True)
     # download_dataset("allenai/wmt22_african", "amh", "ssw", "amh-ssw", manual_split=True)
-    download_dataset("allenai/wmt22_african", "amh", "swh", "amh-swh", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "amh", "swh", "amh-swh", manual_split=True)
     # download_dataset("allenai/wmt22_african", "amh", "tsn", "amh-tsn", manual_split=True)
-    download_dataset("allenai/wmt22_african", "amh", "tso", "amh-tso", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "amh", "tso", "amh-tso", manual_split=True)
     # download_dataset("allenai/wmt22_african", "amh", "umb", "amh-umb", manual_split=True)
-    download_dataset("allenai/wmt22_african", "amh", "xho", "amh-xho", manual_split=True)
-    download_dataset("allenai/wmt22_african", "amh", "zul", "amh-zul", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "amh", "xho", "amh-xho", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "amh", "zul", "amh-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "en", "fuv", "eng-fuv", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "hau", "eng-hau", manual_split=True, collation_fn=eng_to_en)
@@ -114,16 +114,16 @@ def download_base_traindata():
     # download_dataset("allenai/wmt22_african", "en", "nya", "eng-nya", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "orm", "eng-orm", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "sna", "eng-sna", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "en", "som", "eng-som", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "en", "som", "eng-som", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "ssw", "eng-ssw", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "en", "swh", "eng-swh", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "en", "swh", "eng-swh", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "tsn", "eng-tsn", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "en", "tso", "eng-tso", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "en", "tso", "eng-tso", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "umb", "eng-umb", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "wol", "eng-wol", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "en", "xho", "eng-xho", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "en", "xho", "eng-xho", manual_split=True, collation_fn=eng_to_en)
     # download_dataset("allenai/wmt22_african", "en", "yor", "eng-yor", manual_split=True, collation_fn=eng_to_en)
-    download_dataset("allenai/wmt22_african", "en", "zul", "eng-zul", manual_split=True, collation_fn=eng_to_en)
+    # download_dataset("allenai/wmt22_african", "en", "zul", "eng-zul", manual_split=True, collation_fn=eng_to_en)
 
     # download_dataset("allenai/wmt22_african", "fr", "hau", "fra-hau", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "ibo", "fra-ibo", manual_split=True, collation_fn=fra_to_fr)
@@ -135,15 +135,15 @@ def download_base_traindata():
     # download_dataset("allenai/wmt22_african", "fr", "nso", "fra-nso", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "nya", "fra-nya", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "orm", "fra-orm", manual_split=True, collation_fn=fra_to_fr)
-    download_dataset("allenai/wmt22_african", "fr", "som", "fra-som", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "fr", "som", "fra-som", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "ssw", "fra-ssw", manual_split=True, collation_fn=fra_to_fr)
-    download_dataset("allenai/wmt22_african", "fr", "swh", "fra-swh", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "fr", "swh", "fra-swh", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "tsn", "fra-tsn", manual_split=True, collation_fn=fra_to_fr)
-    download_dataset("allenai/wmt22_african", "fr", "tso", "fra-tso", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "fr", "tso", "fra-tso", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "umb", "fra-umb", manual_split=True, collation_fn=fra_to_fr)
     # download_dataset("allenai/wmt22_african", "fr", "wol", "fra-wol", manual_split=True, collation_fn=fra_to_fr)
-    download_dataset("allenai/wmt22_african", "fr", "xho", "fra-xho", manual_split=True, collation_fn=fra_to_fr)
-    download_dataset("allenai/wmt22_african", "fr", "zul", "fra-zul", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "fr", "xho", "fra-xho", manual_split=True, collation_fn=fra_to_fr)
+    # download_dataset("allenai/wmt22_african", "fr", "zul", "fra-zul", manual_split=True, collation_fn=fra_to_fr)
 
     # download_dataset("allenai/wmt22_african", "fuv", "hau", "fuv-hau", manual_split=True)
     # download_dataset("allenai/wmt22_african", "fuv", "ibo", "fuv-ibo", manual_split=True)
@@ -311,13 +311,13 @@ def download_base_traindata():
     # download_dataset("allenai/wmt22_african", "sna", "zul", "sna-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "som", "ssw", "som-ssw", manual_split=True)
-    download_dataset("allenai/wmt22_african", "som", "swh", "som-swh", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "som", "swh", "som-swh", manual_split=True)
     # download_dataset("allenai/wmt22_african", "som", "tsn", "som-tsn", manual_split=True)
-    download_dataset("allenai/wmt22_african", "som", "tso", "som-tso", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "som", "tso", "som-tso", manual_split=True)
     # download_dataset("allenai/wmt22_african", "som", "umb", "som-umb", manual_split=True)
-    download_dataset("allenai/wmt22_african", "som", "xho", "som-xho", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "som", "xho", "som-xho", manual_split=True)
     # download_dataset("allenai/wmt22_african", "som", "yor", "som-yor", manual_split=True)
-    download_dataset("allenai/wmt22_african", "som", "zul", "som-zul", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "som", "zul", "som-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "ssw", "swh", "ssw-swh", manual_split=True)
     # download_dataset("allenai/wmt22_african", "ssw", "tsn", "ssw-tsn", manual_split=True)
@@ -328,11 +328,11 @@ def download_base_traindata():
     # download_dataset("allenai/wmt22_african", "ssw", "zul", "ssw-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "swh", "tsn", "swh-tsn", manual_split=True)
-    download_dataset("allenai/wmt22_african", "swh", "tso", "swh-tso", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "swh", "tso", "swh-tso", manual_split=True)
     # download_dataset("allenai/wmt22_african", "swh", "umb", "swh-umb", manual_split=True)
-    download_dataset("allenai/wmt22_african", "swh", "xho", "swh-xho", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "swh", "xho", "swh-xho", manual_split=True)
     # download_dataset("allenai/wmt22_african", "swh", "yor", "swh-yor", manual_split=True)
-    download_dataset("allenai/wmt22_african", "swh", "zul", "swh-zul", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "swh", "zul", "swh-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "tsn", "tso", "tsn-tso", manual_split=True)
     # download_dataset("allenai/wmt22_african", "tsn", "umb", "tsn-umb", manual_split=True)
@@ -341,16 +341,16 @@ def download_base_traindata():
     # download_dataset("allenai/wmt22_african", "tsn", "zul", "tsn-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "tso", "umb", "tso-umb", manual_split=True)
-    download_dataset("allenai/wmt22_african", "tso", "xho", "tso-xho", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "tso", "xho", "tso-xho", manual_split=True)
     # download_dataset("allenai/wmt22_african", "tso", "yor", "tso-yor", manual_split=True)
-    download_dataset("allenai/wmt22_african", "tso", "zul", "tso-zul", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "tso", "zul", "tso-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "umb", "xho", "umb-xho", manual_split=True)
     # download_dataset("allenai/wmt22_african", "umb", "yor", "umb-yor", manual_split=True)
     # download_dataset("allenai/wmt22_african", "umb", "zul", "umb-zul", manual_split=True)
 
-    download_dataset("allenai/wmt22_african", "xho", "yor", "xho-yor", manual_split=True)
-    download_dataset("allenai/wmt22_african", "xho", "zul", "xho-zul", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "xho", "yor", "xho-yor", manual_split=True)
+    # download_dataset("allenai/wmt22_african", "xho", "zul", "xho-zul", manual_split=True)
 
     # download_dataset("allenai/wmt22_african", "yor", "zul", "yor-zul", manual_split=True)
 

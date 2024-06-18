@@ -10,7 +10,6 @@ import glob
 import io
 import matplotlib.pyplot as plt
 import os
-import random
 import seaborn as sns
 import supreme_tokenizer
 import time
@@ -129,13 +128,14 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
     return train_loader, val_loader
 
 class Trainer:
-    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, device, dtype, run_dir, summary_writer, early_stopping=None):
+    def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, n_steps, device, dtype, run_dir, summary_writer, early_stopping=None):
         self.args = args
         self.tokenizer = tokenizer
         self.model = model
         self.compiled_model = compiled_model
         self.optimizer = optimizer
         self.criterion = criterion
+        self.n_steps = n_steps
         self.device = device
         self.dtype = dtype
         self.run_dir = run_dir
@@ -210,7 +210,17 @@ class Trainer:
                 self.model.eval()
                 self.viz_model(0, self.model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
-    def get_criteria(self, epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask):
+    def get_criteria(self, epoch, batch):
+        src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
+
+        src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
+        tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
+        src_seq_lengths = src_seq_lengths.to(self.device) # (1)
+        tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
+
+        src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
+        tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
+
         predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
 
         moe_diversity_loss = 0
@@ -226,10 +236,16 @@ class Trainer:
             encoder_moe_gating_variances = encoder_moe_gating_variances.item()
             decoder_moe_gating_variances = decoder_moe_gating_variances.item()
 
+        del src_seqs
+        del src_seq_lengths
+
         # Note: If the target sequence is "<BOS> w1 w2 ... wN <EOS> <PAD> <PAD> <PAD> <PAD> ..."
         # we should consider only "w1 w2 ... wN <EOS>" as <BOS> is not predicted
         # Therefore, pads start after (length - 1) positions
         translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+
+        del tgt_seqs
+        del tgt_seq_lengths
 
         loss = translation_loss + moe_diversity_loss
 
@@ -249,28 +265,22 @@ class Trainer:
         start_data_time = time.time()
         start_step_time = time.time()
 
-        for i, (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths) in enumerate(self.train_loader):
-            src_seqs = src_seqs.to(self.device) # (N, max_source_sequence_pad_length_this_batch)
-            tgt_seqs = tgt_seqs.to(self.device) # (N, max_target_sequence_pad_length_this_batch)
-            src_seq_lengths = src_seq_lengths.to(self.device) # (N)
-            tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (N)
-
-            src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
-            tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
+        for i, batch in enumerate(self.train_loader):
+            tgt_seq_length_sum = (batch[3] - 1).sum().item()
 
             data_time.update(time.time() - start_data_time)
 
             if self.scaler is not None:
                 with autocast():
-                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, batch)
             else:
-                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
-            
+                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, batch)
+
             if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
                 encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
                 decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances, 1)
 
-            translation_losses.update(translation_loss.item(), (tgt_seq_lengths - 1).sum().item())
+            translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
 
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
@@ -279,7 +289,7 @@ class Trainer:
             else:
                 (loss / self.args.batches_per_step).backward()
 
-            total_losses.update(loss.item(), (tgt_seq_lengths - 1).sum().item())
+            total_losses.update(loss.item(), tgt_seq_length_sum)
 
             # Update model (i.e. perform a training step) only after gradients are accumulated from batches_per_step batches
             if (i + 1) % self.args.batches_per_step == 0:
@@ -319,22 +329,16 @@ class Trainer:
 
         with torch.no_grad():
             losses = utils.AverageMeter()
-            for (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, src_langs, tgt_langs) in tqdm(self.val_loader, total=self.val_loader.n_batches):
-                src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
-                tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
-                src_seq_lengths = src_seq_lengths.to(self.device) # (1)
-                tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
-
-                src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
-                tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
+            for batch in tqdm(self.val_loader, total=self.val_loader.n_batches):
+                tgt_seq_length_sum = (batch[3] - 1).sum().item()
 
                 if self.scaler is not None:
                     with autocast():
-                        loss, _, _, _, _ = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                        loss, _, _, _, _ = self.get_criteria(epoch, batch)
                 else:
-                    loss, _, _, _, _ = self.get_criteria(epoch, src_seqs, tgt_seqs, tgt_seq_lengths, src_key_padding_mask, tgt_key_padding_mask)
+                    loss, _, _, _, _ = self.get_criteria(epoch, batch)
 
-                losses.update(loss.item(), (tgt_seq_lengths - 1).sum().item())
+                losses.update(loss.item(), tgt_seq_length_sum)
 
             self.summary_writer.add_scalar('Validation Loss', losses.avg, self.steps)
             print("\nValidation loss: %.3f\n\n" % losses.avg)
@@ -435,5 +439,5 @@ class Trainer:
                 target_sequence, _ = decoder_layer.fcn(target_sequence) # (N, pad_length, d_model)
 
 if __name__ == "__main__":
-    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, args.device, args.dtype, run_dir, summary_writer, early_stopping)
+    trainer = Trainer(args, tokenizer, model, compiled_model, optimizer, criterion, args.n_steps, args.device, args.dtype, run_dir, summary_writer, early_stopping)
     trainer.train()

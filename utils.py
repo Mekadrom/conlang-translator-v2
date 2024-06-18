@@ -22,14 +22,14 @@ import yaml
 import youtokentome
 
 VOCAB_SIZES = {
-    'afr': 8192,
-    'amh': 3072,
+    # 'afr': 8192,
+    # 'amh': 3072,
     'cs': 3072,
     'de': 8192,
     'en': 16384,
     'et': 2048,
     'fi': 4096,
-    'fr': 7168,
+    'fr': 6144,
     # 'fuv': 3072,
     'gu': 1024,
     # 'hau': 4096,
@@ -50,20 +50,20 @@ VOCAB_SIZES = {
     'ro': 1024,
     'ru': 6144,
     # 'sna': 4096,
-    'som': 2048,
+    # 'som': 2048,
     # 'ssw': 2048,
-    'swh': 6144,
+    # 'swh': 6144,
     'tr': 1024,
     # 'tsn': 4096,
-    'tso': 2048,
+    # 'tso': 2048,
     # 'umb': 2048,
     'vi': 7168,
     # 'wol': 3072,
-    'xho': 10240,
+    # 'xho': 10240,
     # 'yor': 10240,
     'zh': 15360,
-    'zul': 2048,
-    'con': 10240
+    # 'zul': 2048,
+    'con': 8192
 }
 
 # first n tokens are reserved for the <lang> tags at the beginning of src and tgt sequences
