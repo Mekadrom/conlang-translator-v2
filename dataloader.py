@@ -9,7 +9,8 @@ import torch
 import youtokentome
 
 class SequenceLoader(object):
-    def __init__(self, src_tokenizer, tgt_tokenizer, data_folder, source_suffix, target_suffix, split, tokens_in_batch, pad_to_length=None):
+    def __init__(self, args, src_tokenizer, tgt_tokenizer, data_folder, source_suffix, target_suffix, split, tokens_in_batch, pad_to_length=None):
+        self.args = args
         self.source_suffix = source_suffix
         self.target_suffix = target_suffix
         self.tokens_in_batch = tokens_in_batch
@@ -32,8 +33,12 @@ class SequenceLoader(object):
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 
-        source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
-        target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        if args.separate_tokenizers:
+            source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
+            target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        else:
+            source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode(source_data, bos=False, eos=False), desc='Encoding src sequences')]
+            target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
@@ -96,8 +101,12 @@ class SequenceLoader(object):
             raise StopIteration
 
         # Tokenize using BPE model to word IDs
-        source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
-        target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        if self.args.separate_tokenizers:
+            source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+            target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        else:
+            source_data = self.src_tokenizer.encode(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+            target_data = self.tgt_tokenizer.encode(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)            
 
         # Convert source and target sequences as padded tensors
         source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)

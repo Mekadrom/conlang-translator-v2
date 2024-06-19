@@ -11,7 +11,8 @@ import utils
 import youtokentome
 
 class SequenceLoader(object):
-    def __init__(self, tokenizer, data_files, tokens_in_batch, cache_count=1000, for_training=False, pad_to_length=None):
+    def __init__(self, args, tokenizer, data_files, tokens_in_batch, cache_count=1000, for_training=False, pad_to_length=None):
+        self.args = args
         self.data_files = data_files
         self.tokens_in_batch = tokens_in_batch
         self.cache_count = cache_count
@@ -56,8 +57,12 @@ class SequenceLoader(object):
         if len(source_data) == 0:
             raise ValueError("No more data to load!")
 
-        source_lengths = [len(s) for s in tqdm(self.tokenizer.encode_all(source_data, langs=src_langs, bos=False, eos=False), desc='Encoding src sequences')]
-        target_lengths = [len(t) for t in tqdm(self.tokenizer.encode_all(target_data, langs=tgt_langs, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        if self.args.separate_tokenizers:
+            source_lengths = [len(s) for s in tqdm(self.tokenizer.encode_all(source_data, langs=src_langs, bos=False, eos=False), desc='Encoding src sequences')]
+            target_lengths = [len(t) for t in tqdm(self.tokenizer.encode_all(target_data, langs=tgt_langs, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+        else:
+            source_lengths = [len(s) for s in tqdm(self.tokenizer.encode(source_data, langs=src_langs, bos=False, eos=False), desc='Encoding src sequences')]
+            target_lengths = [len(t) for t in tqdm(self.tokenizer.encode(target_data, langs=tgt_langs, bos=True, eos=True), desc='Encoding tgt sequences')]
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths, src_langs, tgt_langs))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
@@ -110,8 +115,12 @@ class SequenceLoader(object):
                 raise StopIteration
 
         # Tokenize using BPE model to word IDs
-        source_data = self.tokenizer.encode_all(source_data, src_langs, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
-        target_data = self.tokenizer.encode_all(target_data, tgt_langs, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        if self.args.separate_tokenizers:
+            source_data = self.tokenizer.encode_all(source_data, src_langs, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+            target_data = self.tokenizer.encode_all(target_data, tgt_langs, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
+        else:
+            source_data = self.tokenizer.encode(source_data, src_langs, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
+            target_data = self.tokenizer.encode(target_data, tgt_langs, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
 
         # Convert source and target sequences as padded tensors
         source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)

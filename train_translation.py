@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import utils
+import youtokentome as yttm
 
 class EarlyStopping:
     def __init__(self, patience=7, min_delta=0):
@@ -48,7 +49,10 @@ if not os.path.exists(run_dir):
 
 summary_writer = SummaryWriter(log_dir=run_dir)
 
-tokenizer = supreme_tokenizer.SupremeTokenizer()
+if args.separate_tokenizers:
+    tokenizer = supreme_tokenizer.SupremeTokenizer()
+else:
+    tokenizer = yttm.BPE(model='tokenizers/collated.model')
 
 model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
 if torch.cuda.device_count() > 1:

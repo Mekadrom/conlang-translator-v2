@@ -356,6 +356,36 @@ def download_base_traindata():
 
     download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
+def train_tokenizer(output_dir, vocab_size, n_threads=-1):
+    all_training_datafiles = glob.glob('data/train_collated_*')
+
+    print(f"Training tokenizer...")
+
+    # preliminary cleanup
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    if os.path.exists(f'tokenizer_collated.txt'):
+        os.remove(f'tokenizer_collated.txt')
+
+    with open(f'tokenizer_collated.txt', 'w') as outfile:
+        for fname in all_training_datafiles:
+            with open(fname) as infile:
+                idx = 0
+                for line in infile:
+                    if idx == 0:
+                        for c in line:
+                            idx += 1
+                            if c == '>':
+                                break
+                    outfile.write(line[idx:]) # remove the language tag
+
+    # train tokenizer
+    yttm.BPE.train(data=f"tokenizer_collated.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_collated.model"), n_threads=n_threads)
+
+    # remove temp file
+    os.remove(f'tokenizer_collated.txt')
+
 def train_tokenizers(output_dir, n_threads=-1):
     all_training_datafiles = glob.glob('data/train_*')
 
@@ -396,7 +426,7 @@ def train_tokenizers(output_dir, n_threads=-1):
                                     break
                         outfile.write(line[idx:]) # remove the language tag
 
-        # # train tokenizer
+        # train tokenizer
         yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=utils.VOCAB_SIZES[lang], model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
 
         # remove temp file
@@ -487,6 +517,8 @@ if __name__ == '__main__':
     argparser.add_argument('--collate', action='store_true', help='Collate the data')
     argparser.add_argument('--n_collated_files', default=10, type=int, help='Number of collated files to create')
     argparser.add_argument('--prune_collated', action='store_true', help='Prune the collated data')
+    argparser.add_argument('--train_collated', action='store_true', help='Train the collated tokenizers')
+    argparser.add_argument('--static_vocab_size', type=int, default=48000, help='Vocabulary size for the collated tokenizers')
 
     args = argparser.parse_args()
 
@@ -501,6 +533,9 @@ if __name__ == '__main__':
 
     if args.collate:
         collate_data(args.n_collated_files)
+
+    if args.train_collated:
+        train_tokenizer('tokenizers', args.static_vocab_size, n_threads=args.train_n_threads)
 
     if args.prune_collated:
         prune_collated_data(minlen=args.minlen, maxlen=args.maxlen)
