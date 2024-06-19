@@ -284,8 +284,6 @@ class Trainer:
 
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
             else:
                 (loss / self.args.batches_per_step).backward()
 
@@ -296,7 +294,12 @@ class Trainer:
                 if self.args.clip_grad_norm is not None and self.args.clip_grad_norm > 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.clip_grad_norm)
                 
-                self.optimizer.step()
+                if self.scaler is not None:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                    
                 self.optimizer.zero_grad()
 
                 self.steps += 1
