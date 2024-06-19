@@ -104,8 +104,15 @@ class SequenceLoader(object):
         target_data = pad_sequence(sequences=[torch.LongTensor(t) for t in target_data], batch_first=True, padding_value=0)
 
         if self.pad_to_length is not None:
-            source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)
-            target_data = torch.cat([target_data, torch.zeros(target_data.size(0), self.pad_to_length - target_data.size(1), dtype=target_data.dtype)], dim=1)
+            if self.pad_to_length - source_data.size(1) > 0:
+                source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)
+            elif self.pad_to_length - source_data.size(1) < 0:
+                source_data = source_data[:, :self.pad_to_length]
+
+            if self.pad_to_length - target_data.size(1) > 0:
+                target_data = torch.cat([target_data, torch.zeros(target_data.size(0), self.pad_to_length - target_data.size(1), dtype=target_data.dtype)], dim=1)
+            elif self.pad_to_length - target_data.size(1) < 0:
+                target_data = target_data[:, :self.pad_to_length]
 
         # Convert lengths to tensors
         source_lengths = torch.LongTensor(source_lengths)
