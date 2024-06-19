@@ -296,8 +296,8 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
         # Encode
         encoder_sequences, gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
 
-        # Our hypothesis to begin with is just <BOS>
-        hypotheses = torch.LongTensor([[2]]).to(device) # (1, 1) (BOS == 2)
+        # Our hypothesis to begin with is just <bos>
+        hypotheses = torch.LongTensor([[2]]).to(device) # (1, 1) (bos == 2)
 
         # Tensor to store hypotheses' scores; now it's just 0
         hypotheses_scores = torch.zeros(1).to(device) # (1)
@@ -310,7 +310,7 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
         step = 1
 
         # Assume "s" is the number of incomplete hypotheses currently in the bag; a number less than or equal to "k"
-        # At this point, s is 1, because we only have 1 hypothesis to work with, i.e. "<BOS>"
+        # At this point, s is 1, because we only have 1 hypothesis to work with, i.e. "<bos>"
         while True:
             s = hypotheses.size(0)
 

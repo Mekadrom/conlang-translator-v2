@@ -2,6 +2,7 @@ from criteria.labelsmooth import LabelSmoothedCE
 from dataloader import SequenceLoader
 from modules import transformer
 from prettytable import PrettyTable
+from tokenizers import Tokenizer
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -52,9 +53,12 @@ summary_writer = SummaryWriter(log_dir=run_dir)
 if args.separate_tokenizers:
     tokenizer = supreme_tokenizer.SupremeTokenizer()
 else:
-    tokenizer = yttm.BPE(model='tokenizers/collated.model')
+    tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
-model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
+if args.separate_tokenizers:
+    model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
+else:
+    model = transformer.Transformer(args, tokenizer.get_vocab_size())
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model = model.to(device=args.device, dtype=args.dtype, non_blocking=True)
@@ -91,25 +95,9 @@ if len(train_data_files) != len(val_data_files):
     raise ValueError("Number of train and validation files do not match.")
 
 def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=None):
-    # print('Loading training data SequenceLoader...')
-    # train_loader = SequenceLoader(
-    #     tokenizer=tokenizer,
-    #     data_files=train_data_files,
-    #     tokens_in_batch=tokens_in_batch,
-    #     for_training=True,
-    #     pad_to_length=pad_to_length
-    # )
-
-    # print('Loading validation data SequenceLoader...')
-    # val_loader = SequenceLoader(
-    #     tokenizer=tokenizer,
-    #     data_files=val_data_files,
-    #     tokens_in_batch=tokens_in_batch,
-    #     pad_to_length=pad_to_length
-    # )
-
     print('Loading training data SequenceLoader...')
     train_loader = SequenceLoader(
+        args,
         src_tokenizer=tokenizer,
         tgt_tokenizer=tokenizer,
         data_folder=os.path.join('data'),
@@ -122,6 +110,7 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
 
     print('Loading validation data SequenceLoader...')
     val_loader = SequenceLoader(
+        args,
         src_tokenizer=tokenizer,
         tgt_tokenizer=tokenizer,
         data_folder=os.path.join('data'),
@@ -246,8 +235,8 @@ class Trainer:
         del src_seqs
         del src_seq_lengths
 
-        # Note: If the target sequence is "<BOS> w1 w2 ... wN <EOS> <PAD> <PAD> <PAD> <PAD> ..."
-        # we should consider only "w1 w2 ... wN <EOS>" as <BOS> is not predicted
+        # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
+        # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
         # Therefore, pads start after (length - 1) positions
         translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
 
@@ -382,10 +371,13 @@ class Trainer:
         return buf
 
     def viz_model(self, step, model, src, tgt):
+        if not tgt.endswith('<EOS>'):
+            tgt += '<EOS>'
+
         with torch.no_grad():
             model.eval()
 
-            input_sequence = torch.LongTensor(self.tokenizer.encode(src, eos=False)).unsqueeze(0).to(self.device, self.dtype, False) # (1, input_sequence_length)
+            input_sequence = torch.LongTensor(self.tokenizer.encode(src)).unsqueeze(0).to(self.device, self.dtype, False) # (1, input_sequence_length)
             input_tokens = [self.tokenizer.decode([id.item()])[0] for id in input_sequence.squeeze(0)]
             input_sequence_length = input_sequence.size(1)
 
@@ -393,7 +385,7 @@ class Trainer:
             if self.args.use_infinite_attention or True:
                 input_sequence = torch.cat([input_sequence, torch.zeros([1, self.args.maxlen - input_sequence.size(1)], dtype=torch.long, device=input_sequence.device)], dim=1)
 
-            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt, eos=True)).unsqueeze(0).to(self.device, self.dtype, False) # (1, target_sequence_length)
+            target_sequence = torch.LongTensor(self.tokenizer.encode(tgt)).unsqueeze(0).to(self.device, self.dtype, False) # (1, target_sequence_length)
             target_tokens = [self.tokenizer.decode([id.item()])[0] for id in target_sequence.squeeze(0)]
             target_sequence_length = target_sequence.size(1)
 

@@ -30,15 +30,16 @@ class SequenceLoader(object):
             source_data = f.read().split("\n")[:-1]
         with codecs.open(os.path.join(data_folder, ".".join([split, target_suffix])), "r", encoding="utf-8") as f:
             target_data = f.read().split("\n")[:-1]
+            target_data = [f"<bos>{t}<eos>" for t in target_data]
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 
         if args.separate_tokenizers:
             source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
-            target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+            target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <bos> and <eos> tokens
         else:
-            source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode(source_data, bos=False, eos=False), desc='Encoding src sequences')]
-            target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <BOS> and <EOS> tokens
+            source_lengths = [len(s) for s in tqdm([self.src_tokenizer.encode(datum) for datum in source_data], desc='Encoding src sequences')]
+            target_lengths = [len(t) for t in tqdm([self.tgt_tokenizer.encode(datum) for datum in target_data], desc='Encoding tgt sequences')] # target language sequences have <bos> and <eos> tokens
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
@@ -105,8 +106,8 @@ class SequenceLoader(object):
             source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
             target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
         else:
-            source_data = self.src_tokenizer.encode(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
-            target_data = self.tgt_tokenizer.encode(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)            
+            source_data = [self.src_tokenizer.encode(datum) for datum in source_data]
+            target_data = [self.tgt_tokenizer.encode(datum) for datum in target_data]
 
         # Convert source and target sequences as padded tensors
         source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)

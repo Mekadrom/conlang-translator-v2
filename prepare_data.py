@@ -1,4 +1,8 @@
 from datasets import load_dataset
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.trainers import BpeTrainer
 from tqdm import tqdm
 
 import argparse
@@ -375,7 +379,19 @@ def train_tokenizer(output_dir, vocab_size, n_threads=-1):
                     outfile.write(line)
 
     # train tokenizer
-    yttm.BPE.train(data=f"tokenizer_collated.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_collated.model"), n_threads=n_threads)
+    # yttm.BPE.train(data=f"tokenizer_collated.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_collated.model"), n_threads=n_threads)
+    tokenizer = Tokenizer(BPE())
+    tokenizer.pre_tokenizer = Whitespace()
+
+    trainer = BpeTrainer(
+        vocab_size=vocab_size,
+        min_frequency=2,
+        show_progress=True,
+        special_tokens=["<pad>", "<bos>", "<eos>", "<unk>"] + [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
+    )
+    tokenizer.train(files=["tokenizer_collated.txt"], trainer=trainer)
+
+    tokenizer.save(os.path.join(output_dir, f"tokenizer_collated.json"))
 
     # remove temp file
     os.remove(f'tokenizer_collated.txt')
