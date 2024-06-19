@@ -71,6 +71,9 @@ VOCAB_SIZES = {
 TOTAL_VOCAB_SIZE = len(VOCAB_SIZES) + sum(VOCAB_SIZES.values())
 
 def get_language_tokenizer_offset(lang):
+    if lang.startswith("<") and lang.endswith(">"):
+        lang = lang[1:-1]
+
     offset = len(VOCAB_SIZES)
     for l, vocab_size in VOCAB_SIZES.items():
         if l == lang:

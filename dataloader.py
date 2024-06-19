@@ -107,12 +107,12 @@ class SequenceLoader(object):
             if self.pad_to_length - source_data.size(1) > 0:
                 source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)
             elif self.pad_to_length - source_data.size(1) < 0:
-                source_data = source_data[:, :self.pad_to_length]
+                source_data = source_data[:, :self.pad_to_length+1]
 
             if self.pad_to_length - target_data.size(1) > 0:
                 target_data = torch.cat([target_data, torch.zeros(target_data.size(0), self.pad_to_length - target_data.size(1), dtype=target_data.dtype)], dim=1)
             elif self.pad_to_length - target_data.size(1) < 0:
-                target_data = target_data[:, :self.pad_to_length]
+                target_data = target_data[:, :self.pad_to_length+1]
 
         # Convert lengths to tensors
         source_lengths = torch.LongTensor(source_lengths)

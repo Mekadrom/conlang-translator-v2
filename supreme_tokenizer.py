@@ -64,7 +64,12 @@ class SupremeTokenizer:
         for token in seq:
             local_seq.append(token - tokenizer_offset)
 
-        return [f"<{lang_prefix}>"] + self.tokenizers[lang_prefix].decode(local_seq, **kwargs)
+        try:
+            return [f"<{lang_prefix}>"] + self.tokenizers[lang_prefix].decode(local_seq, **kwargs)
+        except Exception as e:
+            print(e)
+            print(f"Error decoding sequence for language {lang_prefix} with tokens {local_seq}")
+            return "<UNK>"
     
     def decode_all(self, seqs, **kwargs):
         return [self.decode(seq, **kwargs) for seq in seqs]
