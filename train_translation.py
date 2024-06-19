@@ -14,6 +14,7 @@ import seaborn as sns
 import supreme_tokenizer
 import time
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import utils
 
@@ -50,6 +51,8 @@ summary_writer = SummaryWriter(log_dir=run_dir)
 tokenizer = supreme_tokenizer.SupremeTokenizer()
 
 model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
+if torch.cuda.device_count() > 1:
+    model = nn.DataParallel(model)
 model = model.to(device=args.device, dtype=args.dtype, non_blocking=True)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), eps=args.epsilon)
@@ -299,7 +302,7 @@ class Trainer:
                     self.scaler.update()
                 else:
                     self.optimizer.step()
-                    
+
                 self.optimizer.zero_grad()
 
                 self.steps += 1
