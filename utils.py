@@ -193,6 +193,36 @@ def get_positional_encoding(args):
         positional_encoding = RotaryEmbedding(dim=args.positional_encoding_dim)
     return positional_encoding
 
+def load_data(args, tokens_in_batch, tokenizer, collated_idx, pad_to_length=None):
+    collated_idx += 1
+    print('Loading training data SequenceLoader...')
+    train_loader = SequenceLoader(
+        args,
+        src_tokenizer=tokenizer,
+        tgt_tokenizer=tokenizer,
+        data_folder=os.path.join('data'),
+        source_suffix="src",
+        target_suffix='tgt',
+        split=f"train_collated_{collated_idx}",
+        tokens_in_batch=tokens_in_batch,
+        pad_to_length=pad_to_length
+    )
+
+    print('Loading validation data SequenceLoader...')
+    val_loader = SequenceLoader(
+        args,
+        src_tokenizer=tokenizer,
+        tgt_tokenizer=tokenizer,
+        data_folder=os.path.join('data'),
+        source_suffix="src",
+        target_suffix='tgt',
+        split=f"validation_collated_0",
+        tokens_in_batch=tokens_in_batch,
+        pad_to_length=pad_to_length
+    )
+
+    return train_loader, val_loader
+
 def print_model(model):
     print(f"Model structure: \n {model}")
     print(f'The model has {count_parameters(model):,} total parameters')
@@ -239,6 +269,25 @@ def change_lr(optimizer, new_lr):
     """
     for param_group in optimizer.param_groups:
         param_group['lr'] = new_lr
+
+class EarlyStopping:
+    def __init__(self, patience=7, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss = None
+
+    def __call__(self, val_loss):
+        if self.best_loss == None:
+            self.best_loss = val_loss
+        elif val_loss > self.best_loss - self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        else:
+            self.best_loss = val_loss
+            self.counter = 0
+        return False
 
 class AverageMeter(object):
     """

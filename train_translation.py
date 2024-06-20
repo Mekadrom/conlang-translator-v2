@@ -20,25 +20,6 @@ import torch.optim as optim
 import utils
 import youtokentome as yttm
 
-class EarlyStopping:
-    def __init__(self, patience=7, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.counter = 0
-        self.best_loss = None
-
-    def __call__(self, val_loss):
-        if self.best_loss == None:
-            self.best_loss = val_loss
-        elif val_loss > self.best_loss - self.min_delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-        else:
-            self.best_loss = val_loss
-            self.counter = 0
-        return False
-
 args, unk = utils.get_args()
 
 setattr(args, 'device', torch.device("cuda" if torch.cuda.is_available() and args.device == 'cuda' else "cpu"))
@@ -75,7 +56,7 @@ else:
 criterion = LabelSmoothedCE(args, eps=args.label_smoothing).to(args.device)
 
 if args.early_stop:
-    early_stopping = EarlyStopping(patience=args.early_stop_patience, min_delta=args.early_stop_min_delta)
+    early_stopping = utils.EarlyStopping(patience=args.early_stop_patience, min_delta=args.early_stop_min_delta)
 else:
     early_stopping = None
 
@@ -90,36 +71,6 @@ sacrebleu_epochs = []
 
 train_data_files = glob.glob(f"data/train_*")
 val_data_files = glob.glob(f"data/validation_*")
-
-def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=None):
-    collated_idx += 1
-    print('Loading training data SequenceLoader...')
-    train_loader = SequenceLoader(
-        args,
-        src_tokenizer=tokenizer,
-        tgt_tokenizer=tokenizer,
-        data_folder=os.path.join('data'),
-        source_suffix="src",
-        target_suffix='tgt',
-        split=f"train_collated_{collated_idx}",
-        tokens_in_batch=tokens_in_batch,
-        pad_to_length=pad_to_length
-    )
-
-    print('Loading validation data SequenceLoader...')
-    val_loader = SequenceLoader(
-        args,
-        src_tokenizer=tokenizer,
-        tgt_tokenizer=tokenizer,
-        data_folder=os.path.join('data'),
-        source_suffix="src",
-        target_suffix='tgt',
-        split=f"validation_collated_0",
-        tokens_in_batch=tokens_in_batch,
-        pad_to_length=pad_to_length
-    )
-
-    return train_loader, val_loader
 
 class Trainer:
     def __init__(self, args, tokenizer, model, compiled_model, optimizer, criterion, n_steps, device, dtype, run_dir, summary_writer, early_stopping=None):
@@ -147,7 +98,7 @@ class Trainer:
         self.steps = 0
         self.start_epoch = self.args.start_epoch
 
-        self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, self.data_idx, pad_to_length=args.maxlen)
+        self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, self.data_idx, pad_to_length=args.maxlen)
         self.epochs = (self.args.n_steps // ((self.train_loader.n_batches * args.n_collated_files) // self.args.batches_per_step)) + 1
 
         print(f"Training for {self.epochs} epochs...")
@@ -179,7 +130,7 @@ class Trainer:
             if self.data_idx >= args.n_collated_files - 1:
                 self.data_idx = 0
 
-            self.train_loader, self.val_loader = load_data(args.tokens_in_batch, run_dir, tokenizer, self.data_idx, pad_to_length=args.maxlen)
+            self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, self.data_idx, pad_to_length=args.maxlen)
 
         time_taken = time.time() - start
 

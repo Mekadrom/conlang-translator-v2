@@ -7,12 +7,83 @@ from tqdm import tqdm
 
 import argparse
 import glob
+import itertools
 import os
 import random
 import shutil
 import utils
 import supreme_tokenizer
 import youtokentome as yttm
+
+VALID_CHARACTER_RANGES = [
+    # characters used in english
+    (0x0000, 0x007F), # Basic Latin
+    (0x0080, 0x00FF), # Latin-1 Supplement
+    (0x0100, 0x017F), # Latin Extended-A
+    (0x0180, 0x024F), # Latin Extended-B
+    (0x0250, 0x02AF), # IPA Extensions
+    (0x02B0, 0x02FF), # Spacing Modifier Letters
+    (0x0300, 0x036F), # Combining Diacritical Marks
+    (0x0370, 0x03FF), # Greek and Coptic
+    (0x0400, 0x04FF), # Cyrillic
+    (0x0530, 0x058F), # Armenian
+    (0x0590, 0x05FF), # Hebrew
+
+    # characters used in japanese
+    (0x3040, 0x309F), # Hiragana
+    (0x30A0, 0x30FF), # Katakana
+    (0x4E00, 0x9FFF), # CJK Unified Ideographs
+    (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
+    (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
+
+    # characters used in chinese
+    (0x4E00, 0x9FFF), # CJK Unified Ideographs
+    (0x3400, 0x4DBF), # CJK Unified Ideographs Extension A
+    (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
+    (0x2A700, 0x2B73F), # CJK Unified Ideographs Extension C
+    (0x2B740, 0x2B81F), # CJK Unified Ideographs Extension D
+    (0x2B820, 0x2CEAF), # CJK Unified Ideographs Extension E
+    (0x2CEB0, 0x2EBEF), # CJK Unified Ideographs Extension F
+    (0x3000, 0x303F), # CJK Symbols and Punctuation
+    (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
+    (0x31C0, 0x31EF), # CJK Strokes
+    (0x2FF0, 0x2FFF), # Ideographic Description Characters
+
+    # characters used in korean
+    (0xAC00, 0xD7AF), # Hangul Syllables
+    (0x1100, 0x11FF), # Hangul Jamo
+    (0x3130, 0x318F), # Hangul Compatibility Jamo
+    (0xA960, 0xA97F), # Hangul Jamo Extended-A
+    (0xD7B0, 0xD7FF), # Hangul Jamo Extended-B
+    (0x302E, 0x302F), # Hangul Compatibility Jamo
+    (0xFFA0, 0xFFDC), # Halfwidth Hangul variants
+
+    # characters used in arabic
+    (0x0600, 0x06FF), # Arabic
+    (0x0750, 0x077F), # Arabic Supplement
+    (0x0870, 0x089F), # Arabic Extended-B
+    (0x08A0, 0x08FF), # Arabic Extended-A
+    (0xFB50, 0xFDFF), # Arabic Presentation Forms-A
+    (0xFE70, 0xFEFF), # Arabic Presentation Forms-B
+
+    # characters used in thai
+    (0x0E00, 0x0E7F), # Thai
+    (0x0E80, 0x0EFF), # Lao
+    (0x0F00, 0x0FFF), # Tibetan
+
+    # characters used in hindi
+    (0x0900, 0x097F), # Devanagari
+    (0xA8E0, 0xA8FF), # Devanagari Extended
+    (0x1CD0, 0x1CFF), # Vedic Extensions
+]
+
+def create_valid_chars_set(ranges):
+    return set(itertools.chain(*(range(start, end + 1) for start, end in ranges)))
+
+valid_chars = create_valid_chars_set(VALID_CHARACTER_RANGES)
+
+def is_valid_line(line):
+    return all(ord(char) in valid_chars for char in line)
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
     os.makedirs('downloaded', exist_ok=True)
@@ -442,6 +513,46 @@ def train_tokenizers(output_dir, n_threads=-1):
         # remove temp file
         os.remove(f'tokenizer_{lang}.txt')
 
+def preprune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
+    src_datafiles = sorted(src_datafiles)
+    tgt_datafiles = sorted(tgt_datafiles)
+
+    print(f"Pruning data files: {src_datafiles} and {tgt_datafiles}...")
+
+    for src_datafile, tgt_datafile in zip(src_datafiles, tgt_datafiles):
+        print(f"Pruning {src_datafile} and {tgt_datafile}...")
+
+        with open(src_datafile, 'r') as src_file, open(tgt_datafile, 'r') as tgt_file:
+            src_data = src_file.readlines()
+            tgt_data = tgt_file.readlines()
+
+        shutil.move(src_datafile, src_datafile + '.pre.bak')
+        shutil.move(tgt_datafile, tgt_datafile + '.pre.bak')
+
+        pre_src_data_len = len(src_data)
+        pre_tgt_data_len = len(tgt_data)
+
+        if pre_src_data_len != pre_tgt_data_len:
+            raise ValueError(f"Data files {src_datafile} and {tgt_datafile} are not the same length")
+        
+        prune_count = 0
+
+        with open(src_datafile, 'a') as src_file, open(tgt_datafile, 'a') as tgt_file:
+            for src_line, tgt_line in tqdm(zip(src_data, tgt_data), total=pre_src_data_len, desc=f"Pruning {src_datafile} and {tgt_datafile}..."):
+                if src_line.startswith("<") and tgt_line.startswith("<"):
+                    if is_valid_line(src_line) and is_valid_line(tgt_line):
+                        src_file.write(f"{src_line}")
+                        tgt_file.write(f"{tgt_line}")
+                        continue
+
+                prune_count += 1
+
+        print(f"Pruned {prune_count} lines from {src_datafile} and {tgt_datafile}. Total # of lines should now be {pre_src_data_len - prune_count}.")
+
+def preprune_collated_data(minlen, maxlen):
+    preprune_data_files(glob.glob('data/train_collated_*.src'), glob.glob('data/train_collated_*.tgt'), minlen, maxlen)
+    preprune_data_files(glob.glob('data/validation_collated_*.src'), glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
+
 def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
     src_datafiles = sorted(src_datafiles)
     tgt_datafiles = sorted(tgt_datafiles)
@@ -480,8 +591,9 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
                     if max_token_len <= maxlen and min_token_len >= minlen:
                         src_file.write(f"{src_line}")
                         tgt_file.write(f"{tgt_line}")
-                    else:
-                        prune_count += 1
+                        continue
+
+                prune_count += 1
 
         print(f"Pruned {prune_count} lines from {src_datafile} and {tgt_datafile}. Total # of lines should now be {pre_src_data_len - prune_count}.")
 
@@ -519,6 +631,7 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
     argparser.add_argument('--download', action='store_true', help='Download the dataset')
+    argparser.add_argument('--preprune_collated', action='store_true', help='Preprune the data')
     argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
     argparser.add_argument('--train_n_threads', default=-1, type=int, help='Number of threads to use for training tokenizers')
     argparser.add_argument('--prune', action='store_true', help='Prune the data')
@@ -543,6 +656,9 @@ if __name__ == '__main__':
 
     if args.collate:
         collate_data(args.n_collated_files)
+
+    if args.preprune_collated:
+        preprune_collated_data(args.minlen, args.maxlen)
 
     if args.train_collated:
         train_tokenizer('tokenizers', args.static_vocab_size, n_threads=args.train_n_threads)
