@@ -18,6 +18,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
+import traceback
 import yaml
 import youtokentome
 
@@ -309,7 +310,7 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, length_norm_coefficient=0.6):
+def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, beam_size=4, length_norm_coefficient=0.6):
     """
     Translates a source language sequence to the target language, with beam search decoding.
 
@@ -327,12 +328,15 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
 
         # If the source sequence is a string, convert to a tensor of IDs
         if isinstance(src, str):
-            encoder_sequences = tokenizer.encode(
-                src,
-                output_type=youtokentome.OutputType.ID,
-                bos=False,
-                eos=False
-            )
+            if args.separate_tokenizers:
+                encoder_sequences = tokenizer.encode(
+                    src,
+                    output_type=youtokentome.OutputType.ID,
+                    bos=False,
+                    eos=False
+                )
+            else:
+                encoder_sequences = tokenizer.encode(src).ids
             encoder_sequences = torch.LongTensor(encoder_sequences).unsqueeze(0) # (1, source_sequence_length)
         else:
             encoder_sequences = src
@@ -346,7 +350,7 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
         encoder_sequences, gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
 
         # Our hypothesis to begin with is just <bos>
-        hypotheses = torch.LongTensor([[2]]).to(device) # (1, 1) (bos == 2)
+        hypotheses = torch.LongTensor([[1, tokenizer.encode(f'<{tgt_lang_code}>').ids[0]]]).to(device) # (1, 1) (bos == 1)
 
         # Tensor to store hypotheses' scores; now it's just 0
         hypotheses_scores = torch.zeros(1).to(device) # (1)
@@ -383,14 +387,18 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
             top_k_hypotheses_scores, unrolled_indices = scores.view(-1).topk(k, 0, True, True) # (k)
 
             # Convert unrolled indices to actual indices of the scores tensor which yielded the best scores
-            prev_word_indices = unrolled_indices // TOTAL_VOCAB_SIZE # (k)
-            next_word_indices = unrolled_indices % TOTAL_VOCAB_SIZE # (k)
+            if args.separate_tokenizers:
+                prev_word_indices = unrolled_indices // TOTAL_VOCAB_SIZE # (k)
+                next_word_indices = unrolled_indices % TOTAL_VOCAB_SIZE # (k)
+            else:
+                prev_word_indices = unrolled_indices // tokenizer.get_vocab_size() # (k)
+                next_word_indices = unrolled_indices % tokenizer.get_vocab_size() # (k)
 
             # Construct the the new top k hypotheses from these indices
             top_k_hypotheses = torch.cat([hypotheses[prev_word_indices], next_word_indices.unsqueeze(1)], dim=1) # (k, step + 1)
 
             # Which of these new hypotheses are complete (reached <EOS>)?
-            complete = next_word_indices == 3 # (k), bool (EOS == 3)
+            complete = next_word_indices == 2 # (k), bool (EOS == 2)
 
             # Set aside completed hypotheses and their scores normalized by their lengths
             # For the length normalization formula, see
@@ -419,7 +427,11 @@ def beam_search_translate(args, src, model, tokenizer, device, beam_size=4, leng
 
         # Decode the hypotheses
         all_hypotheses = list()
-        for i, h in enumerate(tokenizer.decode_all(completed_hypotheses, ignore_ids=[0, 2, 3])):
+        if args.separate_tokenizers:
+            decoded = tokenizer.decode(completed_hypotheses, ignore_ids=[0, 2, 3])
+        else:
+            decoded = [tokenizer.decode(completed_hypothesis, skip_special_tokens=True) for completed_hypothesis in completed_hypotheses]
+        for i, h in enumerate(decoded):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 
         # Find the best scoring completed hypothesis

@@ -155,47 +155,6 @@ class Trainer:
                 self.model.eval()
                 self.viz_model(0, self.model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
-    def get_criteria(self, epoch, batch):
-        src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
-
-        src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
-        tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
-        src_seq_lengths = src_seq_lengths.to(self.device) # (1)
-        tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
-
-        src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
-        tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
-
-        predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
-
-        moe_diversity_loss = 0
-        encoder_moe_gating_variances = None
-        decoder_moe_gating_variances = None
-
-        if self.args.moe_diversity_loss_coefficient > 0 and epoch >= self.args.moe_diversity_inclusion_epoch:
-            encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
-            decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
-
-            moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * self.args.moe_diversity_loss_coefficient
-
-            encoder_moe_gating_variances = encoder_moe_gating_variances.item()
-            decoder_moe_gating_variances = decoder_moe_gating_variances.item()
-
-        del src_seqs
-        del src_seq_lengths
-
-        # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
-        # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
-        # Therefore, pads start after (length - 1) positions
-        translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
-
-        del tgt_seqs
-        del tgt_seq_lengths
-
-        loss = translation_loss + moe_diversity_loss
-
-        return loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss
-
     def train_epoch(self, model, epoch):
         # training mode enables dropout
         model.train()
@@ -211,15 +170,56 @@ class Trainer:
         start_step_time = time.time()
 
         for i, batch in enumerate(self.train_loader):
-            tgt_seq_length_sum = (batch[3] - 1).sum().item()
+            src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
 
-            data_time.update(time.time() - start_data_time)
+            src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
+            tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
+            src_seq_lengths = src_seq_lengths.to(self.device) # (1)
+            tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
+
+            src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
+            tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
 
             if self.scaler is not None:
                 with autocast():
-                    loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, batch)
+                    predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
             else:
-                loss, encoder_moe_gating_variances, decoder_moe_gating_variances, moe_diversity_loss, translation_loss = self.get_criteria(epoch, batch)
+                predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+
+            moe_diversity_loss = 0
+            encoder_moe_gating_variances = None
+            decoder_moe_gating_variances = None
+
+            if self.args.moe_diversity_loss_coefficient > 0 and epoch >= self.args.moe_diversity_inclusion_epoch:
+                encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
+                decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
+
+                moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * self.args.moe_diversity_loss_coefficient
+
+                encoder_moe_gating_variances = encoder_moe_gating_variances.item()
+                decoder_moe_gating_variances = decoder_moe_gating_variances.item()
+
+            del src_seqs
+            del src_seq_lengths
+
+            # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
+            # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
+            # Therefore, pads start after (length - 1) positions
+            if self.scaler is not None:
+                with autocast():
+                    translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1)
+            else:
+                translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+
+            del tgt_seqs
+
+            tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
+
+            del tgt_seq_lengths
+
+            loss = translation_loss + moe_diversity_loss
+
+            data_time.update(time.time() - start_data_time)
 
             if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
                 encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
@@ -256,7 +256,11 @@ class Trainer:
                 if self.steps % self.args.print_frequency == 0:
                     print('Epoch {0}/{1}-----Batch {2}/{3}-----Step {4}/{5}-----Data Time {data_time.val:.3f} ({data_time.avg:.3f})-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
                           'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, self.epochs, i + 1,  self.train_loader.n_batches, self.steps, self.n_steps, step_time=step_time, data_time=data_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
-                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.')
+                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
+                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
+                    self.evaluate(src='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
+                    self.evaluate(src='<zh>任何拥有识别美的能力的人都不会变老。', tgt='Anyone who retains the ability to recognise beauty will never become old.', tgt_lang_code='en')
+                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='任何拥有识别美的能力的人都不会变老。', tgt_lang_code='zh')
 
                 self.summary_writer.add_scalar('Translation Training Loss', translation_losses.avg, self.steps)
                 self.summary_writer.add_scalar('Training Loss', total_losses.avg, self.steps)
@@ -278,13 +282,54 @@ class Trainer:
         with torch.no_grad():
             losses = utils.AverageMeter()
             for batch in tqdm(self.val_loader, total=self.val_loader.n_batches):
-                tgt_seq_length_sum = (batch[3] - 1).sum().item()
+                src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
+
+                src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
+                tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
+                src_seq_lengths = src_seq_lengths.to(self.device) # (1)
+                tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
+
+                src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
+                tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
 
                 if self.scaler is not None:
                     with autocast():
-                        loss, _, _, _, _ = self.get_criteria(epoch, batch)
+                        predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
                 else:
-                    loss, _, _, _, _ = self.get_criteria(epoch, batch)
+                    predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+
+                moe_diversity_loss = 0
+                encoder_moe_gating_variances = None
+                decoder_moe_gating_variances = None
+
+                if self.args.moe_diversity_loss_coefficient > 0 and epoch >= self.args.moe_diversity_inclusion_epoch:
+                    encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
+                    decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
+
+                    moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * self.args.moe_diversity_loss_coefficient
+
+                    encoder_moe_gating_variances = encoder_moe_gating_variances.item()
+                    decoder_moe_gating_variances = decoder_moe_gating_variances.item()
+
+                del src_seqs
+                del src_seq_lengths
+
+                # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
+                # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
+                # Therefore, pads start after (length - 1) positions
+                if self.scaler is not None:
+                    with autocast():
+                        translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1)
+                else:
+                    translation_loss = self.criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
+
+                del tgt_seqs
+
+                tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
+
+                del tgt_seq_lengths
+
+                loss = translation_loss + moe_diversity_loss
 
                 losses.update(loss.item(), tgt_seq_length_sum)
 
@@ -295,8 +340,8 @@ class Trainer:
 
             return losses.avg
 
-    def evaluate(self, src, tgt):
-        best, _ = utils.beam_search_translate(self.args, src, self.model, self.tokenizer, device=self.device, beam_size=4, length_norm_coefficient=0.6)
+    def evaluate(self, src, tgt, tgt_lang_code):
+        best, _ = utils.beam_search_translate(self.args, src, self.model, self.tokenizer, tgt_lang_code, device=self.device, beam_size=4, length_norm_coefficient=0.6)
 
         debug_validate_table = PrettyTable(["Test Source", "Test Prediction", "Test Target"])
         debug_validate_table.add_row([src, best, tgt])
@@ -306,6 +351,10 @@ class Trainer:
         debug_validate_table.min_width = (console_size.columns // 3) - 15
 
         print(debug_validate_table)
+        with open(f"{self.run_dir}/debug_validate.html", "a") as f:
+            f.write(debug_validate_table.get_html_string() + "<br>")
+
+        self.summary_writer.add_text(f'Validation/{tgt_lang_code}', best, self.steps)
 
     def viz_attn_weights(self, stack_name, layer_num, n_head, activation_weights, attendee_tokens, attending_tokens):
         fig, ax = plt.subplots(figsize=(10, 10))

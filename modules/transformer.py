@@ -81,7 +81,7 @@ class MultiHeadAttention(nn.Module):
         else:
             self.beta = None
             self.elu = None
-            self.register_buffer('causal_mask', torch.tril(torch.ones(args.maxlen + 1, args.maxlen + 1).to(args.device)))
+            self.register_buffer('causal_mask', torch.tril(torch.ones(args.maxlen + 2, args.maxlen + 2).to(args.device)))
 
     def mask_attention(self, attention_weights, key_padding_mask):
         # mask away tokens by setting such weights to a large negative number, so that they evaluate to 0 under the softmax
@@ -95,7 +95,12 @@ class MultiHeadAttention(nn.Module):
             attention_weights = attention_weights.masked_fill_(key_padding_mask, -float('inf'))
 
         if self.self_attn:
-            attention_weights = attention_weights.masked_fill_(self.causal_mask[:attention_weights.shape[-2], :attention_weights.shape[-1]] == 0, -float('inf'))
+            assert attention_weights.shape[-2] == attention_weights.shape[-1], f"self-attention weights are not square: {attention_weights.shape[-2]} != {attention_weights.shape[-1]}"
+            try:
+                attention_weights = attention_weights.masked_fill_(self.causal_mask[:attention_weights.shape[-2], :attention_weights.shape[-1]] == 0, -float('inf'))
+            except:
+                print(f"attention_weights.shape: {attention_weights.shape}")
+                print(f"causal_mask.shape: {self.causal_mask[:attention_weights.shape[-2]+1, :attention_weights.shape[-1]+1].shape}")
 
         return attention_weights
 

@@ -582,6 +582,10 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
 
             for src_line, tgt_line in tqdm(zip(src_data, tgt_data), total=pre_src_data_len, desc=f"Pruning {src_datafile} and {tgt_datafile}..."):
                 if src_line.startswith("<") and tgt_line.startswith("<"):
+                    if src_line[3] == '>':
+                        if src_line[4] == '>':
+                            src_line = src_line[0:4] + src_line[5:]
+
                     src_token_len = len(tokenizer.encode(src_line.strip()))
                     tgt_token_len = len(tokenizer.encode(tgt_line.strip()))
 
@@ -627,6 +631,40 @@ def collate_data(n_collated_files):
     collate_dataset('train', n_collated_files)
     collate_dataset('validation', n_collated_files)
 
+def stat_files(datafiles):
+    cset = set()
+    lang_count = {}
+
+    for datafile in glob.glob('data/train_collated_*.src'):
+        with open(datafile, 'r') as file:
+            for line in file:
+                lang_code = ''
+
+                if line[3] == '>':
+                    lang_code = line[1:3]
+
+                if line[4] == '>':
+                    lang_code = line[1:4]
+
+                lang_count[lang_code] = lang_count.get(lang_code, 0) + 1
+
+                for c in line:
+                    cset.add(c)
+
+    return cset, lang_count
+
+def stat():
+    print("Getting statistics of the data...")
+
+    src_cset, src_dict = stat_files('data/train_collated_*.src')
+    tgt_cset, tgt_dict = stat_files('data/train_collated_*.tgt')
+
+    combined_cset = set(src_cset.union(tgt_cset))
+
+    print(f"Unique characters: {len(combined_cset):,}")
+    print(f"Source language counts: {src_dict}")
+    print(f"Target language counts: {tgt_dict}")
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
@@ -642,6 +680,7 @@ if __name__ == '__main__':
     argparser.add_argument('--prune_collated', action='store_true', help='Prune the collated data')
     argparser.add_argument('--train_collated', action='store_true', help='Train the collated tokenizers')
     argparser.add_argument('--static_vocab_size', type=int, default=48000, help='Vocabulary size for the collated tokenizers')
+    argparser.add_argument('--stat', action='store_true', help='Get statistics of the data')
 
     args = argparser.parse_args()
 
@@ -665,3 +704,6 @@ if __name__ == '__main__':
 
     if args.prune_collated:
         prune_collated_data(minlen=args.minlen, maxlen=args.maxlen)
+
+    if args.stat:
+        stat()

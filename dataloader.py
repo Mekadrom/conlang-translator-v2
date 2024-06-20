@@ -38,8 +38,8 @@ class SequenceLoader(object):
             source_lengths = [len(s) for s in tqdm(self.src_tokenizer.encode_all(source_data, bos=False, eos=False), desc='Encoding src sequences')]
             target_lengths = [len(t) for t in tqdm(self.tgt_tokenizer.encode_all(target_data, bos=True, eos=True), desc='Encoding tgt sequences')] # target language sequences have <bos> and <eos> tokens
         else:
-            source_lengths = [len(s) for s in tqdm([self.src_tokenizer.encode(datum) for datum in source_data], desc='Encoding src sequences')]
-            target_lengths = [len(t) for t in tqdm([self.tgt_tokenizer.encode(datum) for datum in target_data], desc='Encoding tgt sequences')] # target language sequences have <bos> and <eos> tokens
+            source_lengths = [len(s) for s in tqdm([self.src_tokenizer.encode(datum, add_special_tokens=True).ids for datum in source_data], desc='Encoding src sequences')] # source language sequences do not have <bos> and <eos> tokens
+            target_lengths = [len(t) for t in tqdm([self.tgt_tokenizer.encode(datum, add_special_tokens=True).ids[1:] for datum in target_data], desc='Encoding tgt sequences')] # target language sequences have <eos> token but not <bos>, lang code tag serves that purpose
         self.data = list(zip(source_data, target_data, source_lengths, target_lengths))
 
         # If for training, pre-sort by target lengths - required for itertools.groupby() later
@@ -106,8 +106,8 @@ class SequenceLoader(object):
             source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
             target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
         else:
-            source_data = [self.src_tokenizer.encode(datum).ids for datum in source_data]
-            target_data = [self.tgt_tokenizer.encode(datum).ids for datum in target_data]
+            source_data = [self.src_tokenizer.encode(datum, add_special_tokens=True).ids for datum in source_data]
+            target_data = [self.tgt_tokenizer.encode(datum, add_special_tokens=True).ids[1:] for datum in target_data]
 
         # Convert source and target sequences as padded tensors
         source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)
@@ -117,12 +117,12 @@ class SequenceLoader(object):
             if self.pad_to_length - source_data.size(1) > 0:
                 source_data = torch.cat([source_data, torch.zeros(source_data.size(0), self.pad_to_length - source_data.size(1), dtype=source_data.dtype)], dim=1)
             elif self.pad_to_length - source_data.size(1) < 0:
-                source_data = source_data[:, :self.pad_to_length+1]
+                source_data = source_data[:, :self.pad_to_length]
 
             if self.pad_to_length - target_data.size(1) > 0:
                 target_data = torch.cat([target_data, torch.zeros(target_data.size(0), self.pad_to_length - target_data.size(1), dtype=target_data.dtype)], dim=1)
             elif self.pad_to_length - target_data.size(1) < 0:
-                target_data = target_data[:, :self.pad_to_length+1]
+                target_data = target_data[:, :self.pad_to_length]
 
         # Convert lengths to tensors
         source_lengths = torch.LongTensor(source_lengths)
