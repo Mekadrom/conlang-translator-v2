@@ -106,8 +106,8 @@ class SequenceLoader(object):
             source_data = self.src_tokenizer.encode_all(source_data, output_type=youtokentome.OutputType.ID, bos=False, eos=False)
             target_data = self.tgt_tokenizer.encode_all(target_data, output_type=youtokentome.OutputType.ID, bos=True, eos=True)
         else:
-            source_data = [self.src_tokenizer.encode(datum) for datum in source_data]
-            target_data = [self.tgt_tokenizer.encode(datum) for datum in target_data]
+            source_data = [self.src_tokenizer.encode(datum).ids for datum in source_data]
+            target_data = [self.tgt_tokenizer.encode(datum).ids for datum in target_data]
 
         # Convert source and target sequences as padded tensors
         source_data = pad_sequence(sequences=[torch.LongTensor(s) for s in source_data], batch_first=True, padding_value=0)

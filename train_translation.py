@@ -91,10 +91,8 @@ sacrebleu_epochs = []
 train_data_files = glob.glob(f"data/train_*")
 val_data_files = glob.glob(f"data/validation_*")
 
-if len(train_data_files) != len(val_data_files):
-    raise ValueError("Number of train and validation files do not match.")
-
 def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=None):
+    collated_idx += 1
     print('Loading training data SequenceLoader...')
     train_loader = SequenceLoader(
         args,
@@ -116,7 +114,7 @@ def load_data(tokens_in_batch, run_dir, tokenizer, collated_idx, pad_to_length=N
         data_folder=os.path.join('data'),
         source_suffix="src",
         target_suffix='tgt',
-        split=f"validation_collated_{collated_idx}",
+        split=f"validation_collated_0",
         tokens_in_batch=tokens_in_batch,
         pad_to_length=pad_to_length
     )
