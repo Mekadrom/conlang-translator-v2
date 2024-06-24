@@ -7,7 +7,8 @@ LLM_SERVER_URL = "http://localhost:8080"
 
 GEN_ENDPOINT = "submit"
 
-URL = f"{LLM_SERVER_URL}/{GEN_ENDPOINT}"
+GEN_URL = f"{LLM_SERVER_URL}/{GEN_ENDPOINT}"
+RLHF_URL = f"{LLM_SERVER_URL}/rlhf"
 
 CONLANG_NAME = "Bakdila'abitz"
 
@@ -15,11 +16,23 @@ history = []
 lexicon = []
 
 def get_english_example(input):
-    response = requests.post(URL, json={"prompt": input, "history": history})
+    response = requests.get(GEN_URL, json={"prompt": input, "history": history})
     return response.json()["response"]
 
 def get_example(prompt):
     return get_english_example(prompt)
+
+def get_rlhf_example():
+    response = requests.get(RLHF_URL, json={"history": history})
+    return response.json()["response"]
+
+def submit_and_retrieve_rlhf(rlhf_tb, english_tb):
+    global history
+    history.append({"prompt": "rlhf", "example": english_tb, "response": rlhf_tb})
+    return get_rlhf_example(), ""
+
+def reject_and_retrieve_rlhf(rlhf_tb):
+    return get_rlhf_example(), ""
 
 def load_history():
     global history
@@ -57,50 +70,57 @@ def save_lexicon():
     with open("lexicon.json", "w", encoding="utf-8") as f:
         json.dump(lexicon, f)
 
-# def save_lexicon_dataframe(lexicon_table):
-#     global lexicon
-#     lexicon = lexicon_table.values.tolist()
-#     save_lexicon()
-#     return lexicon
-
 with gr.Blocks() as app:
-    with gr.Row(equal_height=False):
-        with gr.Blocks() as lexicon_view:
-            with gr.Column(variant="compact"):
-                # accepts json or csv
-                lexicon_file = gr.File(label="Lexicon File", type="filepath", file_types=['csv'])
-                lexicon_table = gr.Dataframe(value=lexicon, label="Lexicon Table", headers=[CONLANG_NAME, "English", "Part of Speech", "Description"], interactive=True, col_count=(4, "fixed"))
+    with gr.Tab("Data Entry"):
+        with gr.Row(equal_height=False):
+            with gr.Blocks() as submission_form:
+                with gr.Column():
+                    dropdown = gr.Dropdown(label="Difficulty", choices=["simple", "intermediate", "advanced"], value="simple", multiselect=False)
+                    refresh = gr.Button("Refresh", variant="secondary")
+                    example_tb = gr.Textbox(label=f"Translate the following sentence to {CONLANG_NAME}", show_copy_button=True, value=get_example("simple"), interactive=False)
 
-                def load_lexicon_file(lexicon_file):
-                    global lexicon
+                    response_tb = gr.Textbox(label="Response")
+                    submit = gr.Button("Submit", variant="primary")
 
-                    pd_dataframe = pd.read_csv(lexicon_file, encoding="utf-8", delimiter='|', keep_default_na=False)
+                    def submit_response(example, response):
+                        global history
+                        prompt = "simple"
+                        history.append({"prompt": prompt, "example": example, "response": response})
+                        save_history()
 
-                    lexicon = list(pd_dataframe.itertuples(index=False, name=None))
-                    print(lexicon)
+                        return get_example(prompt), ""
 
-                    save_lexicon()
-                    return lexicon
-                
-                lexicon_file.change(load_lexicon_file, inputs=[lexicon_file], outputs=[lexicon_table], api_name="load_lexicon_file")
+                    submit.click(fn=submit_response, inputs=[example_tb, response_tb], outputs=[example_tb, response_tb], api_name="submit_response")
+                    refresh.click(fn=lambda val: get_example(val), inputs=[dropdown], outputs=[example_tb], api_name="refresh_example")
+    with gr.Tab("RLHF"):
+        with gr.Row(equal_height=False):
+            with gr.Blocks() as lexicon_view:
+                with gr.Column(variant="compact"):
+                    # accepts json or csv
+                    lexicon_file = gr.File(label="Lexicon File", type="filepath", file_types=['csv'])
+                    lexicon_table = gr.Dataframe(value=lexicon, label="Lexicon Table", headers=[CONLANG_NAME, "English", "Part of Speech", "Description"], interactive=True, col_count=(4, "fixed"))
 
-        with gr.Blocks() as submission_form:
-            with gr.Column():
-                example_tb = gr.Textbox(label=f"Translate the following sentence to {CONLANG_NAME}", show_copy_button=True, value=get_example("simple"), interactive=False)
+                    def load_lexicon_file(lexicon_file):
+                        global lexicon
 
-                response_tb = gr.Textbox(label="Response")
-                submit = gr.Button("Submit", variant="primary")
-                refresh = gr.Button("Refresh", variant="secondary")
+                        pd_dataframe = pd.read_csv(lexicon_file, encoding="utf-8", delimiter='|', keep_default_na=False)
 
-                def submit_response(example, response):
-                    global history
-                    prompt = "simple"
-                    history.append({"prompt": prompt, "example": example, "response": response})
-                    save_history()
+                        lexicon = list(pd_dataframe.itertuples(index=False, name=None))
+                        print(lexicon)
 
-                    return get_example(prompt), ""
+                        save_lexicon()
+                        return lexicon
+                    
+                    lexicon_file.change(load_lexicon_file, inputs=[lexicon_file], outputs=[lexicon_table], api_name="load_lexicon_file")
+            with gr.Blocks() as rlhf_view:
+                with gr.Column(variant="compact"):
+                    rlhf_tb = gr.Textbox(label="RLHF", show_copy_button=True, value=get_rlhf_example(), interactive=False)
+                    english_tb = gr.Textbox(label="English", show_copy_button=True, value="", interactive=True)
 
-                submit.click(fn=submit_response, inputs=[example_tb, response_tb], outputs=[example_tb, response_tb], api_name="submit_response")
-                refresh.click(fn=lambda: get_example("simple"), inputs=[], outputs=[example_tb], api_name="refresh_example")
+                    rlhf_accept = gr.Button("👍", variant="primary")
+                    rlhf_reject = gr.Button("👎", variant="secondary")
+
+                    rlhf_accept.click(fn=submit_and_retrieve_rlhf, inputs=[rlhf_tb, english_tb], outputs=[rlhf_tb, english_tb], api_name="submit_rlhf")
+                    rlhf_reject.click(fn=reject_and_retrieve_rlhf, inputs=[rlhf_tb], outputs=[rlhf_tb, english_tb], api_name="reject_rlhf")
 
 app.launch()

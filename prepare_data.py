@@ -1,7 +1,6 @@
 from datasets import load_dataset
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
-from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 from tqdm import tqdm
 
@@ -10,9 +9,11 @@ import glob
 import itertools
 import os
 import random
+import re
 import shutil
 import utils
 import supreme_tokenizer
+import tokenizers.pre_tokenizers as pre_tokenizers
 import youtokentome as yttm
 
 VALID_CHARACTER_RANGES = [
@@ -77,13 +78,25 @@ VALID_CHARACTER_RANGES = [
     (0x1CD0, 0x1CFF), # Vedic Extensions
 ]
 
+emoji_pattern = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "]+",
+    flags=re.UNICODE
+)
+
 def create_valid_chars_set(ranges):
     return set(itertools.chain(*(range(start, end + 1) for start, end in ranges)))
 
 valid_chars = create_valid_chars_set(VALID_CHARACTER_RANGES)
 
 def is_valid_line(line):
-    return all(ord(char) in valid_chars for char in line)
+    return all(ord(char) in valid_chars for char in line) and not emoji_pattern.search(line)
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
     os.makedirs('downloaded', exist_ok=True)
@@ -432,35 +445,29 @@ def download_base_traindata():
     download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
 def train_tokenizer(output_dir, vocab_size, n_threads=-1):
-    all_training_datafiles = glob.glob('data/train_collated_*')
-
     print(f"Training tokenizer...")
 
     # preliminary cleanup
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    if os.path.exists(f'tokenizer_collated.txt'):
-        os.remove(f'tokenizer_collated.txt')
-
-    with open(f'tokenizer_collated.txt', 'w') as outfile:
-        for fname in all_training_datafiles:
-            with open(fname) as infile:
-                for line in infile:
-                    outfile.write(line)
-
     # train tokenizer
-    # yttm.BPE.train(data=f"tokenizer_collated.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_collated.model"), n_threads=n_threads)
-    tokenizer = Tokenizer(BPE())
-    # tokenizer.pre_tokenizer = Whitespace()
+    special_tokens = ["<pad>", "<unk>", "<bos>", "<eos>"] + [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
+    special_pattern = "|".join(re.escape(token) for token in special_tokens)
+
+    tokenizer = Tokenizer(BPE(unk_token="<unk>"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
+        pre_tokenizers.Split(pattern=f"({special_pattern})", behavior="isolated"),
+        pre_tokenizers.Metaspace(replacement="▁", add_prefix_space=True)
+    ])
 
     trainer = BpeTrainer(
         vocab_size=vocab_size,
-        min_frequency=2,
         show_progress=True,
-        special_tokens=["<pad>", "<bos>", "<eos>", "<unk>"] + [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
+        special_tokens=special_tokens,
+        initial_alphabet=special_tokens
     )
-    tokenizer.train(files=["tokenizer_collated.txt"], trainer=trainer)
+    tokenizer.train(files=glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt'), trainer=trainer)
 
     tokenizer.save(os.path.join(output_dir, f"tokenizer_collated.json"))
 

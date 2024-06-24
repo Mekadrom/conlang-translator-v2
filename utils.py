@@ -261,6 +261,12 @@ def save_checkpoint(epoch, model, optimizer, prefix=''):
     filename = prefix + 'transformer_checkpoint.pth.tar'
     torch.save(state, filename)
 
+def load_checkpoint(model, optimizer, path):
+    state = torch.load(path)
+    model.load_state_dict(state['model'].state_dict())
+    optimizer.load_state_dict(state['optimizer'].state_dict())
+    return state['epoch']
+
 def change_lr(optimizer, new_lr):
     """
     Scale learning rate by a specified factor.
@@ -310,6 +316,16 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+def clean_decoded_text(decoded_text):
+    tokens = decoded_text.split()
+    cleaned_tokens = []
+    for i, token in enumerate(tokens):
+        if i == 0:
+            cleaned_tokens.append(token.lstrip('▁'))
+        else:
+            cleaned_tokens.append(token.replace('▁', ' '))
+    return ''.join(cleaned_tokens)
+
 def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, beam_size=4, length_norm_coefficient=0.6):
     """
     Translates a source language sequence to the target language, with beam search decoding.
@@ -350,7 +366,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
         encoder_sequences, gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
 
         # Our hypothesis to begin with is just <bos>
-        hypotheses = torch.LongTensor([[1, tokenizer.encode(f'<{tgt_lang_code}>').ids[0]]]).to(device) # (1, 1) (bos == 1)
+        hypotheses = torch.LongTensor([[2, tokenizer.encode(f'<{tgt_lang_code}>').ids[0]]]).to(device) # (1, 1) (bos == 2)
 
         # Tensor to store hypotheses' scores; now it's just 0
         hypotheses_scores = torch.zeros(1).to(device) # (1)
@@ -398,7 +414,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
             top_k_hypotheses = torch.cat([hypotheses[prev_word_indices], next_word_indices.unsqueeze(1)], dim=1) # (k, step + 1)
 
             # Which of these new hypotheses are complete (reached <EOS>)?
-            complete = next_word_indices == 2 # (k), bool (EOS == 2)
+            complete = next_word_indices == 3 # (k), bool (EOS == 3)
 
             # Set aside completed hypotheses and their scores normalized by their lengths
             # For the length normalization formula, see
@@ -430,7 +446,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
         if args.separate_tokenizers:
             decoded = tokenizer.decode(completed_hypotheses, ignore_ids=[0, 2, 3])
         else:
-            decoded = [tokenizer.decode(completed_hypothesis, skip_special_tokens=True) for completed_hypothesis in completed_hypotheses]
+            decoded = [clean_decoded_text(tokenizer.decode(completed_hypothesis, skip_special_tokens=True)) for completed_hypothesis in completed_hypotheses]
         for i, h in enumerate(decoded):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 

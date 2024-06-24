@@ -1,15 +1,18 @@
 from flask import Flask, request, jsonify
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
+import json
+import random
+
 app = Flask(__name__)
 
 model = AutoModelForCausalLM.from_pretrained(
-    "microsoft/Phi-3-mini-4k-instruct", 
+    "microsoft/Phi-3-mini-128k-instruct", 
     device_map="cuda", 
     torch_dtype="auto", 
     trust_remote_code=True, 
 )
-tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
+tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-128k-instruct")
 
 gen_pipe = pipeline(
     "text-generation",
@@ -45,14 +48,51 @@ gen_system_prompt_token_count = len(tokenizer(gen_system_prompt)["input_ids"])
 classify_system_prompt = "You will classify the words in a sentence by their part of speech. For each word in the input sentence, repeat the word followed by the part of speech in parentheses. For example, 'The (DET) cat (NOUN) is (VERB) cute (ADJ).' Only answer with this format, and nothing more."
 classify_system_prompt_token_count = len(tokenizer(classify_system_prompt)["input_ids"])
 
+rlhf_system_prompt = "Given a history of sentences written in a user's conlang, their English translations, and the entire lexicon of the conlang, attempt to construct a new sentence in that conlang. Only answer with a single example sentence and nothing more. Do not include any notes to the user."
+rlhf_system_prompt_token_count = len(tokenizer(rlhf_system_prompt)["input_ids"])
+
 print(f"Generation system prompt token count: {gen_system_prompt_token_count}")
 print(f"Classification system prompt token count: {classify_system_prompt_token_count}")
+print(f"RLHF system prompt token count: {rlhf_system_prompt_token_count}")
 
-@app.route('/submit', methods=['POST'])
-def submit():
+with open('lexicon.json', 'r') as f:
+    lexicon = json.load(f)
+
+LEXICON_STRING = '\n'.join([f'"{conlang}": "{pos}"' for conlang, _, pos, _ in lexicon])
+
+@app.route('/rlhf', methods=['GET'])
+def rlhf():
     history = request.json["history"]
 
-    print(history)
+    messages = [
+        {
+            "role": "user",
+            "content": rlhf_system_prompt,
+        },
+        {
+            "role": "assistant",
+            "content": "Sure, I can help with that. Please paste the history of conlang sentences and I will attempt to generate a new sentence.",
+        },
+        {
+            "role": "user",
+            "content": "Sentence history:\n" + '\n'.join([f'"{entry["response"]}": "{entry["example"]}"' for entry in history]) + '\nLexicon (words and their parts of speech):\n' + LEXICON_STRING,
+        },
+    ]
+
+    response = gen_pipe(
+        messages,
+        **generation_args,
+    )
+
+    response = response[0]["generated_text"].strip()
+
+    return jsonify({
+        "response": response,
+    })
+
+@app.route('/submit', methods=['GET'])
+def submit():
+    history = request.json["history"]
 
     message_history = []
 
@@ -68,6 +108,7 @@ def submit():
 
     # truncate history to last 10 entries
     message_history = message_history[::-1][:min(10, len(message_history))][::-1]
+    print(message_history)
 
     messages = [
         {
