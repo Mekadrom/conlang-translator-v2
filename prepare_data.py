@@ -452,7 +452,7 @@ def train_tokenizer(output_dir, vocab_size, n_threads=-1):
     # train tokenizer
     # yttm.BPE.train(data=f"tokenizer_collated.txt", vocab_size=vocab_size, model=os.path.join(output_dir, f"tokenizer_collated.model"), n_threads=n_threads)
     tokenizer = Tokenizer(BPE())
-    tokenizer.pre_tokenizer = Whitespace()
+    # tokenizer.pre_tokenizer = Whitespace()
 
     trainer = BpeTrainer(
         vocab_size=vocab_size,
