@@ -15,15 +15,9 @@ args, unk = utils.get_args()
 setattr(args, 'device', torch.device("cuda" if torch.cuda.is_available() and args.device == 'cuda' else "cpu"))
 setattr(args, 'dtype', torch.float32 if args.dtype == 'float32' else torch.float16)
 
-if args.separate_tokenizers:
-    tokenizer = supreme_tokenizer.SupremeTokenizer()
-else:
-    tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
+tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
-if args.separate_tokenizers:
-    model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
-else:
-    model = transformer.Transformer(args, tokenizer.get_vocab_size())
+model = transformer.Transformer(args, tokenizer.get_vocab_size())
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model = model.to(device=args.device, dtype=args.dtype, non_blocking=True)

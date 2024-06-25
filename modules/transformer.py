@@ -32,6 +32,18 @@ class RMSNorm(nn.Module):
         new_x = new_x * self.weight
 
         return new_x
+    
+class EmbeddingMLP(nn.Module):
+    def __init__(self, vocab_size, compress_dim, emb_dim):
+        super(EmbeddingMLP, self).__init__()
+
+        self.embedding = nn.Embedding(vocab_size, compress_dim)
+        self.compress = nn.Linear(compress_dim, emb_dim)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x = self.compress(x)
+        return x
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, args, self_attn, in_decoder=False, norm=nn.LayerNorm):
@@ -331,7 +343,10 @@ class Encoder(nn.Module):
 
         self.d_model = args.d_model
 
-        self.embedding = nn.Embedding(vocab_size, self.d_model)
+        if 'embedding_compression_dim' in args and args.embedding_compression_dim is not None:
+            self.embedding = EmbeddingMLP(vocab_size, args.embedding_compression_dim, self.d_model)
+        else:
+            self.embedding = nn.Embedding(vocab_size, self.d_model)
         self.apply_dropout = nn.Dropout(args.dropout)
         self.norm = norm(args.d_model, args.norm_eps)
         self.encoder_layers = self.make_encoder_layers(args.n_encoder_layers, args.encoder_param_sharing_type, args.m_encoder_independent_layers, norm=norm)
@@ -476,7 +491,11 @@ class Decoder(nn.Module):
 
         self.d_model = args.d_model
 
-        self.embedding = nn.Embedding(vocab_size, self.d_model)
+        if 'embedding_compression_dim' in args and args.embedding_compression_dim is not None:
+            self.embedding = EmbeddingMLP(vocab_size, args.embedding_compression_dim, self.d_model)
+        else:
+            self.embedding = nn.Embedding(vocab_size, self.d_model)
+
         self.apply_dropout = nn.Dropout(args.dropout)
         self.layer_norm = norm(args.d_model, args.norm_eps)
         self.decoder_layers = self.make_decoder_layers(args.n_decoder_layers, args.decoder_param_sharing_type, args.m_decoder_independent_layers, norm=norm)

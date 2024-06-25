@@ -36,7 +36,7 @@ VOCAB_SIZES = {
     # 'hau': 4096,
     'hi': 1024,
     # 'ibo': 3072,
-    'ja': 12288,
+    # 'ja': 12288,
     # 'kam': 2048,
     # 'kin': 4096,
     'kk': 1024,
@@ -62,7 +62,7 @@ VOCAB_SIZES = {
     # 'wol': 3072,
     # 'xho': 10240,
     # 'yor': 10240,
-    'zh': 15360,
+    # 'zh': 15360,
     # 'zul': 2048,
     'con': 8192
 }
@@ -344,15 +344,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
 
         # If the source sequence is a string, convert to a tensor of IDs
         if isinstance(src, str):
-            if args.separate_tokenizers:
-                encoder_sequences = tokenizer.encode(
-                    src,
-                    output_type=youtokentome.OutputType.ID,
-                    bos=False,
-                    eos=False
-                )
-            else:
-                encoder_sequences = tokenizer.encode(src).ids
+            encoder_sequences = tokenizer.encode(src).ids
             encoder_sequences = torch.LongTensor(encoder_sequences).unsqueeze(0) # (1, source_sequence_length)
         else:
             encoder_sequences = src
@@ -403,12 +395,8 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
             top_k_hypotheses_scores, unrolled_indices = scores.view(-1).topk(k, 0, True, True) # (k)
 
             # Convert unrolled indices to actual indices of the scores tensor which yielded the best scores
-            if args.separate_tokenizers:
-                prev_word_indices = unrolled_indices // TOTAL_VOCAB_SIZE # (k)
-                next_word_indices = unrolled_indices % TOTAL_VOCAB_SIZE # (k)
-            else:
-                prev_word_indices = unrolled_indices // tokenizer.get_vocab_size() # (k)
-                next_word_indices = unrolled_indices % tokenizer.get_vocab_size() # (k)
+            prev_word_indices = unrolled_indices // tokenizer.get_vocab_size() # (k)
+            next_word_indices = unrolled_indices % tokenizer.get_vocab_size() # (k)
 
             # Construct the the new top k hypotheses from these indices
             top_k_hypotheses = torch.cat([hypotheses[prev_word_indices], next_word_indices.unsqueeze(1)], dim=1) # (k, step + 1)
@@ -443,10 +431,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
 
         # Decode the hypotheses
         all_hypotheses = list()
-        if args.separate_tokenizers:
-            decoded = tokenizer.decode(completed_hypotheses, ignore_ids=[0, 2, 3])
-        else:
-            decoded = [clean_decoded_text(tokenizer.decode(completed_hypothesis, skip_special_tokens=True)) for completed_hypothesis in completed_hypotheses]
+        decoded = [clean_decoded_text(tokenizer.decode(completed_hypothesis, skip_special_tokens=True)) for completed_hypothesis in completed_hypotheses]
         for i, h in enumerate(decoded):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 

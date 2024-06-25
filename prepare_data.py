@@ -14,6 +14,7 @@ import shutil
 import utils
 import supreme_tokenizer
 import tokenizers.pre_tokenizers as pre_tokenizers
+import tokenizers.processors as processors
 import youtokentome as yttm
 
 VALID_CHARACTER_RANGES = [
@@ -25,52 +26,52 @@ VALID_CHARACTER_RANGES = [
     (0x0250, 0x02AF), # IPA Extensions
     (0x02B0, 0x02FF), # Spacing Modifier Letters
     (0x0300, 0x036F), # Combining Diacritical Marks
-    (0x0370, 0x03FF), # Greek and Coptic
+    # (0x0370, 0x03FF), # Greek and Coptic
     (0x0400, 0x04FF), # Cyrillic
-    (0x0530, 0x058F), # Armenian
-    (0x0590, 0x05FF), # Hebrew
+    # (0x0530, 0x058F), # Armenian
+    # (0x0590, 0x05FF), # Hebrew
 
     # characters used in japanese
-    (0x3040, 0x309F), # Hiragana
-    (0x30A0, 0x30FF), # Katakana
-    (0x4E00, 0x9FFF), # CJK Unified Ideographs
-    (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
-    (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
+    # (0x3040, 0x309F), # Hiragana
+    # (0x30A0, 0x30FF), # Katakana
+    # (0x4E00, 0x9FFF), # CJK Unified Ideographs
+    # (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
+    # (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
 
     # characters used in chinese
-    (0x4E00, 0x9FFF), # CJK Unified Ideographs
-    (0x3400, 0x4DBF), # CJK Unified Ideographs Extension A
-    (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
-    (0x2A700, 0x2B73F), # CJK Unified Ideographs Extension C
-    (0x2B740, 0x2B81F), # CJK Unified Ideographs Extension D
-    (0x2B820, 0x2CEAF), # CJK Unified Ideographs Extension E
-    (0x2CEB0, 0x2EBEF), # CJK Unified Ideographs Extension F
-    (0x3000, 0x303F), # CJK Symbols and Punctuation
-    (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
-    (0x31C0, 0x31EF), # CJK Strokes
-    (0x2FF0, 0x2FFF), # Ideographic Description Characters
+    # (0x4E00, 0x9FFF), # CJK Unified Ideographs
+    # (0x3400, 0x4DBF), # CJK Unified Ideographs Extension A
+    # (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
+    # (0x2A700, 0x2B73F), # CJK Unified Ideographs Extension C
+    # (0x2B740, 0x2B81F), # CJK Unified Ideographs Extension D
+    # (0x2B820, 0x2CEAF), # CJK Unified Ideographs Extension E
+    # (0x2CEB0, 0x2EBEF), # CJK Unified Ideographs Extension F
+    # (0x3000, 0x303F), # CJK Symbols and Punctuation
+    # (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
+    # (0x31C0, 0x31EF), # CJK Strokes
+    # (0x2FF0, 0x2FFF), # Ideographic Description Characters
 
     # characters used in korean
-    (0xAC00, 0xD7AF), # Hangul Syllables
-    (0x1100, 0x11FF), # Hangul Jamo
-    (0x3130, 0x318F), # Hangul Compatibility Jamo
-    (0xA960, 0xA97F), # Hangul Jamo Extended-A
-    (0xD7B0, 0xD7FF), # Hangul Jamo Extended-B
-    (0x302E, 0x302F), # Hangul Compatibility Jamo
-    (0xFFA0, 0xFFDC), # Halfwidth Hangul variants
+    # (0xAC00, 0xD7AF), # Hangul Syllables
+    # (0x1100, 0x11FF), # Hangul Jamo
+    # (0x3130, 0x318F), # Hangul Compatibility Jamo
+    # (0xA960, 0xA97F), # Hangul Jamo Extended-A
+    # (0xD7B0, 0xD7FF), # Hangul Jamo Extended-B
+    # (0x302E, 0x302F), # Hangul Compatibility Jamo
+    # (0xFFA0, 0xFFDC), # Halfwidth Hangul variants
 
     # characters used in arabic
-    (0x0600, 0x06FF), # Arabic
-    (0x0750, 0x077F), # Arabic Supplement
-    (0x0870, 0x089F), # Arabic Extended-B
-    (0x08A0, 0x08FF), # Arabic Extended-A
-    (0xFB50, 0xFDFF), # Arabic Presentation Forms-A
-    (0xFE70, 0xFEFF), # Arabic Presentation Forms-B
+    # (0x0600, 0x06FF), # Arabic
+    # (0x0750, 0x077F), # Arabic Supplement
+    # (0x0870, 0x089F), # Arabic Extended-B
+    # (0x08A0, 0x08FF), # Arabic Extended-A
+    # (0xFB50, 0xFDFF), # Arabic Presentation Forms-A
+    # (0xFE70, 0xFEFF), # Arabic Presentation Forms-B
 
     # characters used in thai
-    (0x0E00, 0x0E7F), # Thai
-    (0x0E80, 0x0EFF), # Lao
-    (0x0F00, 0x0FFF), # Tibetan
+    # (0x0E00, 0x0E7F), # Thai
+    # (0x0E80, 0x0EFF), # Lao
+    # (0x0F00, 0x0FFF), # Tibetan
 
     # characters used in hindi
     (0x0900, 0x097F), # Devanagari
@@ -78,25 +79,56 @@ VALID_CHARACTER_RANGES = [
     (0x1CD0, 0x1CFF), # Vedic Extensions
 ]
 
-emoji_pattern = re.compile(
-    "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport & map symbols
-    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
-    "]+",
-    flags=re.UNICODE
-)
-
 def create_valid_chars_set(ranges):
     return set(itertools.chain(*(range(start, end + 1) for start, end in ranges)))
 
 valid_chars = create_valid_chars_set(VALID_CHARACTER_RANGES)
 
+def contains_chinese(text):
+    chinese_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u2a700-\u2b73f\u2b740-\u2b81f\u2b820-\u2ceaf\uf900-\ufaff]')
+    return bool(chinese_pattern.search(text))
+
+def contains_vietnamese(text):
+    vietnamese_pattern = re.compile(r'[\u00c0-\u00c3\u00c8-\u00ca\u00cc-\u00cd\u00d2-\u00d5\u00d9\u00da\u00dd\u00e0-\u00e3\u00e8-\u00ea\u00ec-\u00ed\u00f2-\u00f5\u00f9\u00fa\u00fd\u0102\u0103\u0110\u0111\u0128\u0129\u0168\u0169\u01a0\u01a1\u01af\u01b0\u1ea0-\u1ef9\u20ab]')
+    return bool(vietnamese_pattern.search(text))
+
+def contains_korean(text):
+    korean_pattern = re.compile(r'[\u3131-\u3163\uac00-\ud7a3\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF\u302E\u302F\uFFA0-\uFFDC]')
+    return bool(korean_pattern.search(text))
+
+def contains_gujarati(text):
+    gujarati_pattern = re.compile(r'[\u0A80-\u0AFF]')
+    return bool(gujarati_pattern.search(text))
+
+def contains_hindi(text):
+    hindi_pattern = re.compile(r'[\u0900-\u097F\uA8E0-\uA8FF\u1CD0-\u1CFF]')
+    return bool(hindi_pattern.search(text))
+
 def is_valid_line(line):
-    return all(ord(char) in valid_chars for char in line) and not emoji_pattern.search(line)
+    all_valid_chars = all(ord(char) in valid_chars for char in line)
+
+    # is_chinese = line.startswith("<zh>")
+    # is_vietnamese = line.startswith("<vi>")
+    # is_korean = line.startswith("<ko>")
+    # is_gujarati = line.startswith("<gu>")
+    # is_hindi = line.startswith("<hi>")
+
+    # if is_chinese and not contains_chinese(line):
+    #     return False
+    
+    # if is_vietnamese and not contains_vietnamese(line):
+    #     return False
+
+    # if is_korean and not contains_korean(line):
+    #     return False
+    
+    # if is_gujarati and not contains_gujarati(line):
+    #     return False
+    
+    # if is_hindi and not contains_hindi(line):
+    #     return False
+    
+    return all_valid_chars
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
     os.makedirs('downloaded', exist_ok=True)
@@ -123,8 +155,8 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
                 if collation_fn is not None:
                     example = collation_fn(example)
 
-                src_data_file.write(f"<{src_lang}>{example['translation'][src_lang]}\n")
-                tgt_data_file.write(f"<{tgt_lang}>{example['translation'][tgt_lang]}\n")
+                src_data_file.write(f"<{src_lang}> {example['translation'][src_lang]}\n")
+                tgt_data_file.write(f"<{tgt_lang}> {example['translation'][tgt_lang]}\n")
 
     # datasets have to be paired up
     if manual_split:
@@ -143,7 +175,7 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
 def download_base_traindata():
     # total # of languages represented: 34
 
-    download_dataset("may-ohta/jparacrawl", "en", "ja", 'en-ja', manual_split=True, collation_fn=lambda example: { "translation": { "en": example["translation"]["en"], "ja": example["translation"]["ja"] } })
+    # download_dataset("may-ohta/jparacrawl", "en", "ja", 'en-ja', manual_split=True, collation_fn=lambda example: { "translation": { "en": example["translation"]["en"], "ja": example["translation"]["ja"] } })
     # download_dataset("may-ohta/jparacrawl", "zh", "ja", 'zh-ja', manual_split=True, collation_fn=lambda example: { "translation": { "zh": example["translation"]["zh"], "ja": example["translation"]["ja"] } })
 
     download_dataset("wmt/wmt19", "cs", "en", "cs-en")
@@ -154,7 +186,7 @@ def download_base_traindata():
     download_dataset("wmt/wmt19", "kk", "en", "kk-en")
     download_dataset("wmt/wmt19", "lt", "en", "lt-en")
     download_dataset("wmt/wmt19", "ru", "en", "ru-en")
-    download_dataset("wmt/wmt19", "zh", "en", "zh-en")
+    # download_dataset("wmt/wmt19", "zh", "en", "zh-en")
 
     download_dataset("wmt/wmt18", "et", "en", "et-en")
     download_dataset("wmt/wmt18", "tr", "en", "tr-en")
@@ -452,10 +484,11 @@ def train_tokenizer(output_dir, vocab_size, n_threads=-1):
         os.makedirs(output_dir)
 
     # train tokenizer
-    special_tokens = ["<pad>", "<unk>", "<bos>", "<eos>"] + [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
+    lang_tokens = [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
+    special_tokens = ["<pad>", "<unk>", "<bos>", "<eos>"] + lang_tokens
     special_pattern = "|".join(re.escape(token) for token in special_tokens)
-
     tokenizer = Tokenizer(BPE(unk_token="<unk>"))
+
     tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
         pre_tokenizers.Split(pattern=f"({special_pattern})", behavior="isolated"),
         pre_tokenizers.Metaspace(replacement="▁", add_prefix_space=True)
@@ -463,16 +496,23 @@ def train_tokenizer(output_dir, vocab_size, n_threads=-1):
 
     trainer = BpeTrainer(
         vocab_size=vocab_size,
+        min_frequency=2,
         show_progress=True,
         special_tokens=special_tokens,
         initial_alphabet=special_tokens
     )
-    tokenizer.train(files=glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt'), trainer=trainer)
+
+    pattern = re.compile(f"({special_pattern})")
+    data_files = glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt')
+    def data():
+        for data_file in data_files:
+            with open(data_file, 'r') as f:
+                for line in f:
+                    yield re.sub(pattern, '', line)
+
+    tokenizer.train_from_iterator(data(), trainer=trainer, length=len(data_files))
 
     tokenizer.save(os.path.join(output_dir, f"tokenizer_collated.json"))
-
-    # remove temp file
-    os.remove(f'tokenizer_collated.txt')
 
 def train_tokenizers(output_dir, n_threads=-1):
     all_training_datafiles = glob.glob('data/train_*')
@@ -620,6 +660,7 @@ def collate_dataset(split, n_collated_files):
     # append all training data to n_collated_files files
     
     src_tgt_pairs: dict[str, dict[str, str]] = utils.get_structured_data_paths(glob.glob(f"data/{split}_*"))
+    print(src_tgt_pairs)
 
     for pair, paths in tqdm(src_tgt_pairs.items(), desc=f"Collating {split}..."):
         src_path = paths['src']
@@ -631,8 +672,8 @@ def collate_dataset(split, n_collated_files):
             for src_line, tgt_line in tqdm(zip(src_lines, tgt_lines), total=len(src_lines), desc=f"Collating {pair}..."):
                 file_idx = random.randint(0, n_collated_files - 1)
                 with open(f"data/{split}_collated_{file_idx}.src", 'a', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'a', encoding="utf-8") as tgt_collated_file:
-                    src_collated_file.write(src_line)
-                    tgt_collated_file.write(tgt_line)
+                    src_collated_file.write(src_line.replace('\n', '') + '\n')
+                    tgt_collated_file.write(tgt_line.replace('\n', '') + '\n')
 
 def collate_data(n_collated_files):
     collate_dataset('train', n_collated_files)
@@ -642,7 +683,7 @@ def stat_files(datafiles):
     cset = set()
     lang_count = {}
 
-    for datafile in glob.glob('data/train_collated_*.src'):
+    for datafile in glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt'):
         with open(datafile, 'r') as file:
             for line in file:
                 lang_code = ''
@@ -650,7 +691,7 @@ def stat_files(datafiles):
                 if line[3] == '>':
                     lang_code = line[1:3]
 
-                if line[4] == '>':
+                if line[4] == '>' and lang_code == '':
                     lang_code = line[1:4]
 
                 lang_count[lang_code] = lang_count.get(lang_code, 0) + 1
@@ -686,7 +727,7 @@ if __name__ == '__main__':
     argparser.add_argument('--n_collated_files', default=10, type=int, help='Number of collated files to create')
     argparser.add_argument('--prune_collated', action='store_true', help='Prune the collated data')
     argparser.add_argument('--train_collated', action='store_true', help='Train the collated tokenizers')
-    argparser.add_argument('--static_vocab_size', type=int, default=48000, help='Vocabulary size for the collated tokenizers')
+    argparser.add_argument('--static_vocab_size', type=int, default=32768, help='Vocabulary size for the collated tokenizers')
     argparser.add_argument('--stat', action='store_true', help='Get statistics of the data')
 
     args = argparser.parse_args()

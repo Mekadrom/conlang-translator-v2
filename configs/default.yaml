@@ -74,5 +74,4 @@ early_stop_min_delta: 0.0
 early_stop_num_latest_checkpoints_to_avg: 3
 
 n_collated_files: 10
-separate_tokenizers: false
 epochs: 3

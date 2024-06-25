@@ -31,15 +31,10 @@ if not os.path.exists(run_dir):
 
 summary_writer = SummaryWriter(log_dir=run_dir)
 
-if args.separate_tokenizers:
-    tokenizer = supreme_tokenizer.SupremeTokenizer()
-else:
-    tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
+tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
-if args.separate_tokenizers:
-    model = transformer.Transformer(args, utils.TOTAL_VOCAB_SIZE)
-else:
-    model = transformer.Transformer(args, tokenizer.get_vocab_size())
+model = transformer.Transformer(args, tokenizer.get_vocab_size())
+
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 
@@ -132,84 +127,91 @@ class Trainer:
         print("Training complete. Scoring with sacrebleu...")
         print(utils.sacrebleu_evaluate(args, run_dir, tokenizer, model, device=self.device, sacrebleu_in_python=True, test_loader=self.val_loader).score, time_taken, utils.count_parameters(model), self.val_loader)
 
+    def forward_pass(self, epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model):
+        tgt_seqs = tgt_seqs[:, 1:] # remove bos, lang code tag serves as beginning of sequence
+        tgt_seq_lengths = tgt_seq_lengths - 1
+
+        src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
+        tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
+
+        if self.scaler is not None:
+            with autocast():
+                predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+        else:
+            predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+
+        moe_diversity_loss = 0
+        encoder_moe_gating_variances = None
+        decoder_moe_gating_variances = None
+
+        if args.moe_diversity_loss_coefficient > 0 and epoch >= args.moe_diversity_inclusion_epoch:
+            encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
+            decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
+
+            moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * args.moe_diversity_loss_coefficient
+
+            encoder_moe_gating_variances = encoder_moe_gating_variances.item()
+            decoder_moe_gating_variances = decoder_moe_gating_variances.item()
+
+        # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
+        # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
+        # Therefore, pads start after (length - 1) positions
+        if self.scaler is not None:
+            with autocast():
+                translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs, lengths=tgt_seq_lengths)
+        else:
+            translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs, lengths=tgt_seq_lengths) # scalar
+
+        return translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances
+
     def train_epoch(self, model, epoch):
         # training mode enables dropout
         model.train()
 
-        data_time = utils.AverageMeter()
         step_time = utils.AverageMeter()
         total_losses = utils.AverageMeter()
         translation_losses = utils.AverageMeter()
         encoder_moe_gating_variance_losses = utils.AverageMeter()
         decoder_moe_gating_variance_losses = utils.AverageMeter()
 
-        start_data_time = time.time()
         start_step_time = time.time()
 
-        for i, batch in enumerate(self.train_loader):
-            src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
-
+        for i, (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths) in enumerate(self.train_loader):
             src_seqs = src_seqs.to(self.device) # (1, max_source_sequence_pad_length_this_batch)
             tgt_seqs = tgt_seqs.to(self.device) # (1, max_target_sequence_pad_length_this_batch)
             src_seq_lengths = src_seq_lengths.to(self.device) # (1)
             tgt_seq_lengths = tgt_seq_lengths.to(self.device) # (1)
-
-            src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
-            tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
-
-            if self.scaler is not None:
-                with autocast():
-                    predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
-            else:
-                predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
-
-            moe_diversity_loss = 0
-            encoder_moe_gating_variances = None
-            decoder_moe_gating_variances = None
-
-            if args.moe_diversity_loss_coefficient > 0 and epoch >= args.moe_diversity_inclusion_epoch:
-                encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
-                decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
-
-                moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * args.moe_diversity_loss_coefficient
-
-                encoder_moe_gating_variances = encoder_moe_gating_variances.item()
-                decoder_moe_gating_variances = decoder_moe_gating_variances.item()
-
-            del src_seqs
-            del src_seq_lengths
-
-            # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
-            # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
-            # Therefore, pads start after (length - 1) positions
-            if self.scaler is not None:
-                with autocast():
-                    translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1)
-            else:
-                translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1) # scalar
-
-            del tgt_seqs
-
+            
             tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
 
-            del tgt_seq_lengths
-
+            translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = self.forward_pass(epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model)
             loss = translation_loss + moe_diversity_loss
-
-            data_time.update(time.time() - start_data_time)
+            translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
+            total_losses.update(loss.item(), tgt_seq_length_sum)
 
             if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
                 encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
                 decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances, 1)
 
+            # run again with src and tgt switched
+            translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = self.forward_pass(epoch, tgt_seqs, src_seqs, tgt_seq_lengths, src_seq_lengths, model)
+            loss += translation_loss + moe_diversity_loss
             translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
+            total_losses.update(loss.item(), tgt_seq_length_sum)
+
+            if encoder_moe_gating_variances is not None and decoder_moe_gating_variances is not None:
+                encoder_moe_gating_variance_losses.update(encoder_moe_gating_variances, 1)
+                decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances, 1)
+
+            del src_seqs
+            del src_seq_lengths
+            del tgt_seqs
+            del tgt_seq_lengths
 
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
             else:
                 (loss / args.batches_per_step).backward()
-
-            total_losses.update(loss.item(), tgt_seq_length_sum)
 
             # Update model (i.e. perform a training step) only after gradients are accumulated from batches_per_step batches
             if (i + 1) % args.batches_per_step == 0:
@@ -231,14 +233,11 @@ class Trainer:
                 step_time.update(time.time() - start_step_time)
 
                 if self.steps % args.print_frequency == 0:
-                    print('Epoch {0}/{1}-----Batch {2}/{3}-----Step {4}/{5}-----Data Time {data_time.val:.3f} ({data_time.avg:.3f})-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
-                          'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1,  self.train_loader.n_batches, self.steps, args.n_steps, step_time=step_time, data_time=data_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
+                    print('Epoch {0}/{1}-----Batch {2}/{3}-----Step {4}/{5}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
+                          'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1,  self.train_loader.n_batches, self.steps, args.n_steps, step_time=step_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
                     self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
                     self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
                     self.evaluate(src='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
-                    self.evaluate(src='<zh>任何拥有识别美的能力的人都不会变老。', tgt='Anyone who retains the ability to recognise beauty will never become old.', tgt_lang_code='en')
-                    self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='任何拥有识别美的能力的人都不会变老。', tgt_lang_code='zh')
-                    self.evaluate(src='<vi>Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt='任何拥有识别美的能力的人都不会变老。', tgt_lang_code='zh')
 
                 self.summary_writer.add_scalar('Translation Training Loss', translation_losses.avg, self.steps)
                 self.summary_writer.add_scalar('Training Loss', total_losses.avg, self.steps)
@@ -252,7 +251,6 @@ class Trainer:
                 # early stopping requires the ability to average the last few checkpoints so just save all of them
                 if (epoch in [args.epochs - 1, args.epochs - 2] or args.early_stop) and self.steps % 1500 == 0:
                     utils.save_checkpoint(epoch, model, optimizer, prefix=f"{run_dir}/step{str(self.steps)}_")
-            start_data_time = time.time()
     
     def validate_epoch(self, model, epoch):
         model.eval()
@@ -353,24 +351,16 @@ class Trainer:
         with torch.no_grad():
             model.eval()
 
-            if args.separate_tokenizers:
-                input_sequence = torch.LongTensor(tokenizer.encode(src)).unsqueeze(0).to(self.device) # (1, input_sequence_length)
-                input_tokens = [tokenizer.decode([id.item()])[0] for id in input_sequence.squeeze(0)]
-            else:
-                input_sequence = torch.LongTensor(tokenizer.encode(src, add_special_tokens=True).ids).unsqueeze(0).to(self.device)
-                input_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in input_sequence.squeeze(0)]
+            input_sequence = torch.LongTensor(tokenizer.encode(src, add_special_tokens=True).ids).unsqueeze(0).to(self.device)
+            input_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in input_sequence.squeeze(0)]
             input_sequence_length = input_sequence.size(1)
 
             # pad input sequence to args.maxlen
             if args.use_infinite_attention or True:
                 input_sequence = torch.cat([input_sequence, torch.zeros([1, args.maxlen - input_sequence.size(1)], dtype=torch.long, device=input_sequence.device)], dim=1)
 
-            if args.separate_tokenizers:
-                target_sequence = torch.LongTensor(tokenizer.encode(tgt)).unsqueeze(0).to(self.device) # (1, target_sequence_length)
-                target_tokens = [tokenizer.decode([id.item()])[0] for id in target_sequence.squeeze(0)]
-            else:
-                target_sequence = torch.LongTensor(tokenizer.encode(tgt, add_special_tokens=True).ids).unsqueeze(0).to(self.device)
-                target_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in target_sequence.squeeze(0)]
+            target_sequence = torch.LongTensor(tokenizer.encode(tgt, add_special_tokens=True).ids).unsqueeze(0).to(self.device)
+            target_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in target_sequence.squeeze(0)]
             target_sequence_length = target_sequence.size(1)
 
             # pad target sequence to args.maxlen
