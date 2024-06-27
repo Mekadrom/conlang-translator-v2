@@ -8,127 +8,47 @@ import argparse
 import glob
 import itertools
 import os
-import random
 import re
 import shutil
-import utils
-import supreme_tokenizer
 import tokenizers.pre_tokenizers as pre_tokenizers
-import tokenizers.processors as processors
-import youtokentome as yttm
+import unicodedata
+import utils
 
-VALID_CHARACTER_RANGES = [
-    # characters used in english
-    (0x0000, 0x007F), # Basic Latin
-    (0x0080, 0x00FF), # Latin-1 Supplement
-    (0x0100, 0x017F), # Latin Extended-A
-    (0x0180, 0x024F), # Latin Extended-B
-    (0x0250, 0x02AF), # IPA Extensions
-    (0x02B0, 0x02FF), # Spacing Modifier Letters
-    (0x0300, 0x036F), # Combining Diacritical Marks
-    # (0x0370, 0x03FF), # Greek and Coptic
-    (0x0400, 0x04FF), # Cyrillic
-    # (0x0530, 0x058F), # Armenian
-    # (0x0590, 0x05FF), # Hebrew
-
-    # characters used in japanese
-    # (0x3040, 0x309F), # Hiragana
-    # (0x30A0, 0x30FF), # Katakana
-    # (0x4E00, 0x9FFF), # CJK Unified Ideographs
-    # (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
-    # (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
-
-    # characters used in chinese
-    # (0x4E00, 0x9FFF), # CJK Unified Ideographs
-    # (0x3400, 0x4DBF), # CJK Unified Ideographs Extension A
-    # (0x20000, 0x2A6DF), # CJK Unified Ideographs Extension B
-    # (0x2A700, 0x2B73F), # CJK Unified Ideographs Extension C
-    # (0x2B740, 0x2B81F), # CJK Unified Ideographs Extension D
-    # (0x2B820, 0x2CEAF), # CJK Unified Ideographs Extension E
-    # (0x2CEB0, 0x2EBEF), # CJK Unified Ideographs Extension F
-    # (0x3000, 0x303F), # CJK Symbols and Punctuation
-    # (0xFF00, 0xFFEF), # Halfwidth and Fullwidth Forms
-    # (0x31C0, 0x31EF), # CJK Strokes
-    # (0x2FF0, 0x2FFF), # Ideographic Description Characters
-
-    # characters used in korean
-    # (0xAC00, 0xD7AF), # Hangul Syllables
-    # (0x1100, 0x11FF), # Hangul Jamo
-    # (0x3130, 0x318F), # Hangul Compatibility Jamo
-    # (0xA960, 0xA97F), # Hangul Jamo Extended-A
-    # (0xD7B0, 0xD7FF), # Hangul Jamo Extended-B
-    # (0x302E, 0x302F), # Hangul Compatibility Jamo
-    # (0xFFA0, 0xFFDC), # Halfwidth Hangul variants
-
-    # characters used in arabic
-    # (0x0600, 0x06FF), # Arabic
-    # (0x0750, 0x077F), # Arabic Supplement
-    # (0x0870, 0x089F), # Arabic Extended-B
-    # (0x08A0, 0x08FF), # Arabic Extended-A
-    # (0xFB50, 0xFDFF), # Arabic Presentation Forms-A
-    # (0xFE70, 0xFEFF), # Arabic Presentation Forms-B
-
-    # characters used in thai
-    # (0x0E00, 0x0E7F), # Thai
-    # (0x0E80, 0x0EFF), # Lao
-    # (0x0F00, 0x0FFF), # Tibetan
-
-    # characters used in hindi
-    (0x0900, 0x097F), # Devanagari
-    (0xA8E0, 0xA8FF), # Devanagari Extended
-    (0x1CD0, 0x1CFF), # Vedic Extensions
+# Define the Unicode ranges for the specified languages
+allowed_ranges = [
+    (0x0000, 0x007F),  # Basic Latin (English, numbers, punctuation)
+    (0x00A0, 0x00FF),  # Latin-1 Supplement (French, German, etc.)
+    (0x0100, 0x017F),  # Latin Extended-A (Czech, Estonian, Lithuanian, Latvian)
+    (0x0180, 0x024F),  # Latin Extended-B (Romanian, Vietnamese)
+    (0x0250, 0x02AF),  # IPA Extensions (for various languages)
+    (0x0300, 0x036F),  # Combining Diacritical Marks
+    (0x0370, 0x03FF),  # Greek and Coptic (for loanwords)
+    (0x0400, 0x04FF),  # Cyrillic (Russian, Kazakh)
+    (0x0500, 0x052F),  # Cyrillic Supplement
+    (0x1E00, 0x1EFF),  # Latin Extended Additional (Vietnamese)
+    (0x2000, 0x206F),  # General Punctuation
+    (0x2070, 0x209F),  # Superscripts and Subscripts
+    (0x20A0, 0x20CF),  # Currency Symbols
+    (0x2100, 0x214F),  # Letterlike Symbols
+    (0x2150, 0x218F),  # Number Forms
+    (0x2C60, 0x2C7F),  # Latin Extended-C
+    (0xA720, 0xA7FF),  # Latin Extended-D
+    (0xAB30, 0xAB6F),  # Latin Extended-E
+    (0x0A80, 0x0AFF),  # Gujarati
+    (0x0900, 0x097F),  # Devanagari (Hindi)
 ]
 
-def create_valid_chars_set(ranges):
-    return set(itertools.chain(*(range(start, end + 1) for start, end in ranges)))
+all_valid_bytes = set(itertools.chain.from_iterable(range(start, end + 1) for start, end in allowed_ranges))
 
-valid_chars = create_valid_chars_set(VALID_CHARACTER_RANGES)
+def is_valid_byte(byte):
+    return byte in all_valid_bytes
 
-def contains_chinese(text):
-    chinese_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u2a700-\u2b73f\u2b740-\u2b81f\u2b820-\u2ceaf\uf900-\ufaff]')
-    return bool(chinese_pattern.search(text))
+def is_valid_string(input_string):
+    # Remove any combining characters (diacritics) for better matching
+    normalized_string = ''.join(c for c in unicodedata.normalize('NFD', input_string) if unicodedata.category(c) != 'Mn')
 
-def contains_vietnamese(text):
-    vietnamese_pattern = re.compile(r'[\u00c0-\u00c3\u00c8-\u00ca\u00cc-\u00cd\u00d2-\u00d5\u00d9\u00da\u00dd\u00e0-\u00e3\u00e8-\u00ea\u00ec-\u00ed\u00f2-\u00f5\u00f9\u00fa\u00fd\u0102\u0103\u0110\u0111\u0128\u0129\u0168\u0169\u01a0\u01a1\u01af\u01b0\u1ea0-\u1ef9\u20ab]')
-    return bool(vietnamese_pattern.search(text))
-
-def contains_korean(text):
-    korean_pattern = re.compile(r'[\u3131-\u3163\uac00-\ud7a3\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF\u302E\u302F\uFFA0-\uFFDC]')
-    return bool(korean_pattern.search(text))
-
-def contains_gujarati(text):
-    gujarati_pattern = re.compile(r'[\u0A80-\u0AFF]')
-    return bool(gujarati_pattern.search(text))
-
-def contains_hindi(text):
-    hindi_pattern = re.compile(r'[\u0900-\u097F\uA8E0-\uA8FF\u1CD0-\u1CFF]')
-    return bool(hindi_pattern.search(text))
-
-def is_valid_line(line):
-    all_valid_chars = all(ord(char) in valid_chars for char in line)
-
-    # is_chinese = line.startswith("<zh>")
-    # is_vietnamese = line.startswith("<vi>")
-    # is_korean = line.startswith("<ko>")
-    # is_gujarati = line.startswith("<gu>")
-    # is_hindi = line.startswith("<hi>")
-
-    # if is_chinese and not contains_chinese(line):
-    #     return False
-    
-    # if is_vietnamese and not contains_vietnamese(line):
-    #     return False
-
-    # if is_korean and not contains_korean(line):
-    #     return False
-    
-    # if is_gujarati and not contains_gujarati(line):
-    #     return False
-    
-    # if is_hindi and not contains_hindi(line):
-    #     return False
-    
-    return all_valid_chars
+    # Check if all characters in the normalized string are in the allowed ranges
+    return all(is_valid_byte(ord(char)) for char in normalized_string)
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
     os.makedirs('downloaded', exist_ok=True)
@@ -155,8 +75,8 @@ def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, co
                 if collation_fn is not None:
                     example = collation_fn(example)
 
-                src_data_file.write(f"<{src_lang}> {example['translation'][src_lang]}\n")
-                tgt_data_file.write(f"<{tgt_lang}> {example['translation'][tgt_lang]}\n")
+                src_data_file.write(f"<{src_lang}>{example['translation'][src_lang]}\n")
+                tgt_data_file.write(f"<{tgt_lang}>{example['translation'][tgt_lang]}\n")
 
     # datasets have to be paired up
     if manual_split:
@@ -476,12 +396,42 @@ def download_base_traindata():
 
     download_dataset("talmp/en-vi-translation", "en", "vi", manual_split=True, collation_fn=lambda example: { 'translation': { 'en': example['input'], 'vi': example['output'] } })
 
-def train_tokenizer(output_dir, vocab_size, n_threads=-1):
+def collate_dataset(split):
+    src_tgt_pairs: dict[str, dict[str, str]] = utils.get_structured_data_paths(glob.glob(f"data/{split}_*"))
+    print(src_tgt_pairs)
+
+    with open(f"data/{split}.src", 'a', encoding="utf-8") as src_collated_file, open(f"data/{split}.tgt", 'a', encoding="utf-8") as tgt_collated_file:
+        for pair, paths in tqdm(src_tgt_pairs.items(), desc=f"Collating {split}..."):
+            src_path = paths['src']
+            tgt_path = paths['tgt']
+            with open(src_path, 'r', encoding="utf-8") as src_file, open(tgt_path, 'r', encoding="utf-8") as tgt_file:
+                src_lines = src_file.readlines()
+                tgt_lines = tgt_file.readlines()
+                for src_line, tgt_line in tqdm(zip(src_lines, tgt_lines), total=len(src_lines), desc=f"Collating {pair}..."):
+                    src_line = src_line.replace('\n', '')
+                    tgt_line = tgt_line.replace('\n', '')
+
+                    src_valid = is_valid_string(src_line)
+                    if src_valid:
+                        tgt_valid = is_valid_string(tgt_line)
+                        if tgt_valid:
+                            src_collated_file.write(src_line + '\n')
+                            tgt_collated_file.write(tgt_line + '\n')
+                    #     else:
+                    #         print(f"Skipping invalid string: {tgt_line}")
+                    # else:
+                    #     print(f"Skipping invalid string: {src_line}")
+
+def collate_data():
+    collate_dataset('train')
+    collate_dataset('validation')
+
+def train_tokenizer(vocab_size):
     print(f"Training tokenizer...")
 
     # preliminary cleanup
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not os.path.exists("tokenizers"):
+        os.makedirs("tokenizer")
 
     # train tokenizer
     lang_tokens = [f"<{lang_code.lower()}>" for lang_code in utils.VOCAB_SIZES.keys()]
@@ -503,104 +453,19 @@ def train_tokenizer(output_dir, vocab_size, n_threads=-1):
     )
 
     pattern = re.compile(f"({special_pattern})")
-    data_files = glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt')
     def data():
-        for data_file in data_files:
+        for data_file in ['data/train.src', 'data/train.tgt']:
             with open(data_file, 'r') as f:
                 for line in f:
                     yield re.sub(pattern, '', line)
 
-    tokenizer.train_from_iterator(data(), trainer=trainer, length=len(data_files))
+    tokenizer.train_from_iterator(data(), trainer)
 
-    tokenizer.save(os.path.join(output_dir, f"tokenizer_collated.json"))
+    tokenizer.save(os.path.join("tokenizers", "tokenizer_collated.json"))
 
-def train_tokenizers(output_dir, n_threads=-1):
-    all_training_datafiles = glob.glob('data/train_*')
+    return tokenizer
 
-    print(f"Compiling training data from {len(all_training_datafiles)} data files...")
-
-    lang_abbr_to_files = {}
-
-    for datafile in all_training_datafiles:
-        lang_abbreviation = datafile.split('.')[-1]
-
-        if lang_abbreviation in lang_abbr_to_files:
-            lang_abbr_to_files[lang_abbreviation].append(datafile)
-        else:
-            lang_abbr_to_files[lang_abbreviation] = [datafile]
-
-    print(f"Training tokenizers for {len(lang_abbr_to_files)} languages...")
-
-    for lang, file_list in lang_abbr_to_files.items():
-        print(f"Training tokenizer for {lang} on {len(file_list)} files...")
-
-        # preliminary cleanup
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        if os.path.exists(f'tokenizer_{lang}.txt'):
-            os.remove(f'tokenizer_{lang}.txt')
-
-        # append all files to one file for yttm training, then delete temp file
-        with open(f'tokenizer_{lang}.txt', 'w') as outfile:
-            for fname in file_list:
-                with open(fname) as infile:
-                    idx = 0
-                    for line in infile:
-                        if idx == 0:
-                            for c in line:
-                                idx += 1
-                                if c == '>':
-                                    break
-                        outfile.write(line[idx:]) # remove the language tag
-
-        # train tokenizer
-        yttm.BPE.train(data=f"tokenizer_{lang}.txt", vocab_size=utils.VOCAB_SIZES[lang], model=os.path.join(output_dir, f"tokenizer_{lang}.model"), n_threads=n_threads)
-
-        # remove temp file
-        os.remove(f'tokenizer_{lang}.txt')
-
-def preprune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
-    src_datafiles = sorted(src_datafiles)
-    tgt_datafiles = sorted(tgt_datafiles)
-
-    print(f"Pruning data files: {src_datafiles} and {tgt_datafiles}...")
-
-    for src_datafile, tgt_datafile in zip(src_datafiles, tgt_datafiles):
-        print(f"Pruning {src_datafile} and {tgt_datafile}...")
-
-        with open(src_datafile, 'r') as src_file, open(tgt_datafile, 'r') as tgt_file:
-            src_data = src_file.readlines()
-            tgt_data = tgt_file.readlines()
-
-        shutil.move(src_datafile, src_datafile + '.pre.bak')
-        shutil.move(tgt_datafile, tgt_datafile + '.pre.bak')
-
-        pre_src_data_len = len(src_data)
-        pre_tgt_data_len = len(tgt_data)
-
-        if pre_src_data_len != pre_tgt_data_len:
-            raise ValueError(f"Data files {src_datafile} and {tgt_datafile} are not the same length")
-        
-        prune_count = 0
-
-        with open(src_datafile, 'a') as src_file, open(tgt_datafile, 'a') as tgt_file:
-            for src_line, tgt_line in tqdm(zip(src_data, tgt_data), total=pre_src_data_len, desc=f"Pruning {src_datafile} and {tgt_datafile}..."):
-                if src_line.startswith("<") and tgt_line.startswith("<"):
-                    if is_valid_line(src_line) and is_valid_line(tgt_line):
-                        src_file.write(f"{src_line}")
-                        tgt_file.write(f"{tgt_line}")
-                        continue
-
-                prune_count += 1
-
-        print(f"Pruned {prune_count} lines from {src_datafile} and {tgt_datafile}. Total # of lines should now be {pre_src_data_len - prune_count}.")
-
-def preprune_collated_data(minlen, maxlen):
-    preprune_data_files(glob.glob('data/train_collated_*.src'), glob.glob('data/train_collated_*.tgt'), minlen, maxlen)
-    preprune_data_files(glob.glob('data/validation_collated_*.src'), glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
-
-def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
+def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxlen):
     src_datafiles = sorted(src_datafiles)
     tgt_datafiles = sorted(tgt_datafiles)
 
@@ -625,8 +490,6 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
         prune_count = 0
 
         with open(src_datafile, 'a') as src_file, open(tgt_datafile, 'a') as tgt_file:
-            tokenizer = supreme_tokenizer.SupremeTokenizer()
-
             for src_line, tgt_line in tqdm(zip(src_data, tgt_data), total=pre_src_data_len, desc=f"Pruning {src_datafile} and {tgt_datafile}..."):
                 if src_line.startswith("<") and tgt_line.startswith("<"):
                     if src_line[3] == '>':
@@ -648,110 +511,29 @@ def prune_data_files(src_datafiles, tgt_datafiles, minlen, maxlen):
 
         print(f"Pruned {prune_count} lines from {src_datafile} and {tgt_datafile}. Total # of lines should now be {pre_src_data_len - prune_count}.")
 
-def prune_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_*.src'), glob.glob('data/train_*.tgt'), minlen, maxlen)
-    prune_data_files(glob.glob('data/validation_*.src'), glob.glob('data/validation_*.tgt'), minlen, maxlen)
-
-def prune_collated_data(minlen, maxlen):
-    prune_data_files(glob.glob('data/train_collated_*.src'), glob.glob('data/train_collated_*.tgt'), minlen, maxlen)
-    prune_data_files(glob.glob('data/validation_collated_*.src'), glob.glob('data/validation_collated_*.tgt'), minlen, maxlen)
-
-def collate_dataset(split, n_collated_files):
-    # append all training data to n_collated_files files
-    
-    src_tgt_pairs: dict[str, dict[str, str]] = utils.get_structured_data_paths(glob.glob(f"data/{split}_*"))
-    print(src_tgt_pairs)
-
-    for pair, paths in tqdm(src_tgt_pairs.items(), desc=f"Collating {split}..."):
-        src_path = paths['src']
-        tgt_path = paths['tgt']
-        with open(src_path, 'r', encoding="utf-8") as src_file, open(tgt_path, 'r', encoding="utf-8") as tgt_file:
-            src_lines = src_file.readlines()
-            tgt_lines = tgt_file.readlines()
-
-            for src_line, tgt_line in tqdm(zip(src_lines, tgt_lines), total=len(src_lines), desc=f"Collating {pair}..."):
-                file_idx = random.randint(0, n_collated_files - 1)
-                with open(f"data/{split}_collated_{file_idx}.src", 'a', encoding="utf-8") as src_collated_file, open(f"data/{split}_collated_{file_idx}.tgt", 'a', encoding="utf-8") as tgt_collated_file:
-                    src_collated_file.write(src_line.replace('\n', '') + '\n')
-                    tgt_collated_file.write(tgt_line.replace('\n', '') + '\n')
-
-def collate_data(n_collated_files):
-    collate_dataset('train', n_collated_files)
-    collate_dataset('validation', n_collated_files)
-
-def stat_files(datafiles):
-    cset = set()
-    lang_count = {}
-
-    for datafile in glob.glob('data/train_collated_*.src') + glob.glob('data/train_collated_*.tgt'):
-        with open(datafile, 'r') as file:
-            for line in file:
-                lang_code = ''
-
-                if line[3] == '>':
-                    lang_code = line[1:3]
-
-                if line[4] == '>' and lang_code == '':
-                    lang_code = line[1:4]
-
-                lang_count[lang_code] = lang_count.get(lang_code, 0) + 1
-
-                for c in line:
-                    cset.add(c)
-
-    return cset, lang_count
-
-def stat():
-    print("Getting statistics of the data...")
-
-    src_cset, src_dict = stat_files('data/train_collated_*.src')
-    tgt_cset, tgt_dict = stat_files('data/train_collated_*.tgt')
-
-    combined_cset = set(src_cset.union(tgt_cset))
-
-    print(f"Unique characters: {len(combined_cset):,}")
-    print(f"Source language counts: {src_dict}")
-    print(f"Target language counts: {tgt_dict}")
-
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
-    argparser.add_argument('--download', action='store_true', help='Download the dataset')
-    argparser.add_argument('--preprune_collated', action='store_true', help='Preprune the data')
-    argparser.add_argument('--train', action='store_true', help='Train the tokenizers')
-    argparser.add_argument('--train_n_threads', default=-1, type=int, help='Number of threads to use for training tokenizers')
-    argparser.add_argument('--prune', action='store_true', help='Prune the data')
-    argparser.add_argument('--minlen', type=int, default=3, help='Minimum length for pruning')
-    argparser.add_argument('--maxlen', type=int, default=160, help='Maximum length for pruning')
-    argparser.add_argument('--collate', action='store_true', help='Collate the data')
-    argparser.add_argument('--n_collated_files', default=10, type=int, help='Number of collated files to create')
-    argparser.add_argument('--prune_collated', action='store_true', help='Prune the collated data')
-    argparser.add_argument('--train_collated', action='store_true', help='Train the collated tokenizers')
-    argparser.add_argument('--static_vocab_size', type=int, default=32768, help='Vocabulary size for the collated tokenizers')
-    argparser.add_argument('--stat', action='store_true', help='Get statistics of the data')
+    argparser.add_argument("--minlen", type=int, default=3)
+    argparser.add_argument("--maxlen", type=int, default=160)
+    argparser.add_argument("--vocab_size", type=int, default=32768)
 
     args = argparser.parse_args()
 
-    if args.download:
-        download_base_traindata()
+    collate_data()
 
-    if args.train:
-        train_tokenizers('tokenizers', n_threads=args.train_n_threads)
+    tokenizer = train_tokenizer(args.vocab_size)
 
-    if args.prune:
-        prune_data(minlen=args.minlen, maxlen=args.maxlen)
+    # test tokenizer
+    ids = tokenizer.encode("<en> Anyone who retains the ability to recognize beauty will never grow old.").ids
+    print(ids)
+    print([tokenizer.id_to_token(id) for id in ids])
+    print(tokenizer.decode(ids))
 
-    if args.collate:
-        collate_data(args.n_collated_files)
-
-    if args.preprune_collated:
-        preprune_collated_data(args.minlen, args.maxlen)
-
-    if args.train_collated:
-        train_tokenizer('tokenizers', args.static_vocab_size, n_threads=args.train_n_threads)
-
-    if args.prune_collated:
-        prune_collated_data(minlen=args.minlen, maxlen=args.maxlen)
-
-    if args.stat:
-        stat()
+    prune_by_token_length(
+        tokenizer,
+        ['data/train.src', 'data/validation.src'],
+        ['data/train.tgt', 'data/validation.tgt'],
+        args.minlen,
+        args.maxlen
+    )

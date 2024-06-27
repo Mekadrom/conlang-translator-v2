@@ -214,7 +214,7 @@ class Trainer:
                 (loss / args.batches_per_step).backward()
 
             # Update model (i.e. perform a training step) only after gradients are accumulated from batches_per_step batches
-            if (i + 1) % args.batches_per_step == 0:
+            if i % args.batches_per_step == 0:
                 if args.clip_grad_norm is not None and args.clip_grad_norm > 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
                 
