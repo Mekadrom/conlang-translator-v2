@@ -6,7 +6,62 @@ from tqdm import tqdm
 import codecs
 import os
 import torch
-import youtokentome
+
+def generate_loader(args, tokenizer, data_folder, split, tokens_in_batch, pad_to_length=None):
+    def load_data(suffix):
+        with codecs.open(os.path.join(data_folder, ".".join([split, suffix])), "r", encoding="utf-8") as f:
+            for line in f:
+                tokens = tokenizer.encode(line, add_special_tokens=True).ids
+                yield torch.LongTensor(tokens), torch.LongTensor([len(tokens)])
+
+    src_data = load_data("src")
+    tgt_data = load_data("tgt")
+
+    def make_next_batch():
+        batch = []
+        total_tokens = 0
+        with tqdm(total=tokens_in_batch, desc=f"Loading {split} data") as pbar:
+            while total_tokens < tokens_in_batch:
+                try:
+                    src, src_lengths = next(src_data)
+                    tgt, tgt_lengths = next(tgt_data)
+                except StopIteration:
+                    break
+                batch.append((src, tgt, src_lengths, tgt_lengths))
+
+                example_length = tgt_lengths.item()
+
+                # batching metric is # of tokens in target sequences
+                total_tokens += example_length
+
+                pbar.update(example_length)
+
+            if len(batch) == 0:
+                return None
+        
+        src, tgt, src_lengths, tgt_lengths, = zip(*batch)
+
+        # takes a list of id sequences and returns padded Tensor
+        src = pad_sequence(sequences=src, batch_first=True, padding_value=0)
+        src_lengths = torch.stack(src_lengths)
+
+        tgt = pad_sequence(sequences=tgt, batch_first=True, padding_value=0)
+        tgt_lengths = torch.stack(tgt_lengths)
+
+        if pad_to_length is not None:
+            if pad_to_length - src.size(1) > 0:
+                src = torch.cat([src, torch.zeros(src.size(0), pad_to_length - src.size(1), dtype=src.dtype)], dim=1)
+            elif pad_to_length - src.size(1) < 0:
+                src = src[:, :pad_to_length]
+
+            if pad_to_length - tgt.size(1) > 0:
+                tgt = torch.cat([tgt, torch.zeros(tgt.size(0), pad_to_length - tgt.size(1), dtype=tgt.dtype)], dim=1)
+            elif pad_to_length - tgt.size(1) < 0:
+                tgt = tgt[:, :pad_to_length]
+
+        return src, tgt, src_lengths, tgt_lengths
+
+    yield from iter(make_next_batch, None)
 
 class SequenceLoader(object):
     def __init__(self, args, src_tokenizer, tgt_tokenizer, data_folder, source_suffix, target_suffix, split, tokens_in_batch, pad_to_length=None):
@@ -30,7 +85,7 @@ class SequenceLoader(object):
             source_data = f.read().split("\n")[:-1]
         with codecs.open(os.path.join(data_folder, ".".join([split, target_suffix])), "r", encoding="utf-8") as f:
             target_data = f.read().split("\n")[:-1]
-            target_data = [f"<bos>{t}<eos>" for t in target_data]
+            target_data = [f"{t}<eos>" for t in target_data]
 
         assert len(source_data) == len(target_data), "There are a different number of source or target sequences!"
 

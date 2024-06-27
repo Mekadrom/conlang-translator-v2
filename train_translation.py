@@ -7,6 +7,7 @@ from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+import dataloader
 import glob
 import io
 import matplotlib.pyplot as plt
@@ -97,12 +98,14 @@ class Trainer:
         start = time.time()
 
         for epoch in range(start_epoch, args.epochs):
-            self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, pad_to_length=args.maxlen)
+            # self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, pad_to_length=args.maxlen)
+            self.train_loader = dataloader.generate_loader(args, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
+            self.val_loader = dataloader.generate_loader(args, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
 
-            self.train_loader.create_batches()
+            # self.train_loader.create_batches()
             self.train_epoch(compiled_model, epoch)
 
-            self.val_loader.create_batches()
+            # self.val_loader.create_batches()
             val_loss_avg = self.validate_epoch(model, epoch)
 
             utils.save_checkpoint(epoch, model, optimizer, prefix=f"{run_dir}/{model_name_prefix}")
