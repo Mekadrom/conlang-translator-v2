@@ -8,6 +8,8 @@ import os
 import torch
 
 def generate_loader(n_file_idx, tokenizer, data_folder, split, tokens_in_batch, pad_to_length=None):
+    print(f"Loading {split}_{n_file_idx}...")
+
     def load_data(suffix):
         with codecs.open(os.path.join(data_folder, f"{split}_{n_file_idx}.{suffix}"), "r", encoding="utf-8") as f:
             for line in f:

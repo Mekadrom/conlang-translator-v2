@@ -21,10 +21,9 @@ import yaml
 class GeneratorDataset(Dataset):
     def __init__(self, generator, length):
         self.generator = generator
-        self.length = length
 
     def __len__(self):
-        return self.length
+        return length
 
     def __getitem__(self, idx):
         # This might be inefficient for large datasets
@@ -166,6 +165,8 @@ def sanitize_model(model):
 
     if hasattr(model, 'module'):
         model = model.module
+
+    assert type(model) == transformer.Transformer, f"Model must be a transformer model. Got: {type(model)}"
 
     return model
 
