@@ -1,10 +1,9 @@
 from criteria.labelsmooth import LabelSmoothedCE
 from modules import transformer
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, ProfilerActivity
 
 from tokenizers import Tokenizer
 
-import supreme_tokenizer
 import torch
 import torch.nn as nn
 import torch.optim as optim

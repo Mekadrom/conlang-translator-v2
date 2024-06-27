@@ -12,7 +12,6 @@ import io
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
-import supreme_tokenizer
 import time
 import torch
 import torch.nn as nn
@@ -98,26 +97,25 @@ class Trainer:
         start = time.time()
 
         for epoch in range(start_epoch, args.epochs):
-            for n in range(args.n_collated_files):
-                self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, n, pad_to_length=args.maxlen)
+            self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, pad_to_length=args.maxlen)
 
-                self.train_loader.create_batches()
-                self.train_epoch(compiled_model, epoch)
+            self.train_loader.create_batches()
+            self.train_epoch(compiled_model, epoch)
 
-                self.val_loader.create_batches()
-                val_loss_avg = self.validate_epoch(model, epoch)
+            self.val_loader.create_batches()
+            val_loss_avg = self.validate_epoch(model, epoch)
 
-                utils.save_checkpoint(epoch, model, optimizer, prefix=f"{run_dir}/{model_name_prefix}")
+            utils.save_checkpoint(epoch, model, optimizer, prefix=f"{run_dir}/{model_name_prefix}")
 
-                if self.early_stopping is not None:
-                    if self.early_stopping(val_loss_avg):
-                        print("Early stopping")
-                        utils.average_checkpoints(args.epochs, optimizer, run_dir, args.early_stop_num_latest_checkpoints_to_avg, model_name_prefix='step')
+            if self.early_stopping is not None:
+                if self.early_stopping(val_loss_avg):
+                    print("Early stopping")
+                    utils.average_checkpoints(args.epochs, optimizer, run_dir, args.early_stop_num_latest_checkpoints_to_avg, model_name_prefix='step')
 
-                        print(f"Training complete. Evaluating one last time...")
-                        self.val_loader.create_batches()
-                        self.validate_epoch(model, epoch)
-                        break
+                    print(f"Training complete. Evaluating one last time...")
+                    self.val_loader.create_batches()
+                    self.validate_epoch(model, epoch)
+                    break
 
         time_taken = time.time() - start
 

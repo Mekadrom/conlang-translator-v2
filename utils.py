@@ -194,8 +194,7 @@ def get_positional_encoding(args):
         positional_encoding = RotaryEmbedding(dim=args.positional_encoding_dim)
     return positional_encoding
 
-def load_data(args, tokens_in_batch, tokenizer, collated_idx, pad_to_length=None):
-    collated_idx += 1
+def load_data(args, tokens_in_batch, tokenizer, pad_to_length=None):
     print('Loading training data SequenceLoader...')
     train_loader = SequenceLoader(
         args,
@@ -204,7 +203,7 @@ def load_data(args, tokens_in_batch, tokenizer, collated_idx, pad_to_length=None
         data_folder=os.path.join('data'),
         source_suffix="src",
         target_suffix='tgt',
-        split=f"train_collated_{collated_idx}",
+        split=f"train",
         tokens_in_batch=tokens_in_batch,
         pad_to_length=pad_to_length
     )
@@ -217,7 +216,7 @@ def load_data(args, tokens_in_batch, tokenizer, collated_idx, pad_to_length=None
         data_folder=os.path.join('data'),
         source_suffix="src",
         target_suffix='tgt',
-        split=f"validation_collated_0",
+        split=f"validation",
         tokens_in_batch=tokens_in_batch,
         pad_to_length=pad_to_length
     )
