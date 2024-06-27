@@ -35,7 +35,7 @@ m_encoder_independent_layers: 4
 m_decoder_independent_layers: 4
 activation_function: swiglu
 
-tokens_in_batch: 1000
+tokens_in_batch: 5000
 target_tokens_per_batch: 25000
 n_steps: 100000
 warmup_steps: 8000
@@ -73,5 +73,5 @@ early_stop_patience: 3
 early_stop_min_delta: 0.0
 early_stop_num_latest_checkpoints_to_avg: 3
 
-n_collated_files: 10
+n_files: 2
 epochs: 3

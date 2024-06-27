@@ -1,9 +1,11 @@
 from criteria.labelsmooth import LabelSmoothedCE
-from dataloader import SequenceLoader
 from modules import transformer
 from prettytable import PrettyTable
 from tokenizers import Tokenizer
 from torch.cuda.amp import autocast, GradScaler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -15,10 +17,11 @@ import os
 import seaborn as sns
 import time
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.optim as optim
 import utils
-import youtokentome as yttm
 
 args, unk = utils.get_args()
 
@@ -35,7 +38,8 @@ tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
 model = transformer.Transformer(args, tokenizer.get_vocab_size())
 
-if torch.cuda.device_count() > 1:
+if torch.cuda.device_count() > 1 and args.device == torch.device("cuda"):
+    print(f"Using {torch.cuda.device_count()} GPUs")
     model = nn.DataParallel(model)
 
 start_epoch = 0
@@ -48,9 +52,8 @@ model = model.to(device=args.device, dtype=args.dtype, non_blocking=True)
 if args.torch_compile_model:
     torch.set_float32_matmul_precision('high')
     torch._dynamo.config.cache_size_limit = int(args.dynamo_cache_size_limit)
-    compiled_model = torch.compile(model)
-else:
-    compiled_model = model
+
+    model = torch.compile(model)
 
 criterion = LabelSmoothedCE(args, eps=args.label_smoothing).to(args.device)
 
@@ -83,55 +86,77 @@ class Trainer:
         else:
             self.scaler = None
 
-    def train(self, model_name_prefix=''):
+    def setup(self, rank, world_size):
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    def cleanup(self):
+        dist.destroy_process_group()
+
+    def start_training(self):
+        world_size = torch.cuda.device_count()
+        mp.spawn(self.train, args=(world_size,), nprocs=world_size, join=True)
+
+    def train(self, rank, world_size):
         self.steps = 0
 
-        if start_epoch == 0:
-            print("Visualizing attention weights before training...")
-            # get attention weight visualization before any updates are made to the model
-            with torch.no_grad():
-                model.eval()
-                self.viz_model(0, model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
+        self.setup(rank, world_size)
 
+        try:
+            model = model.to(rank)
 
-        print(f"Training for {args.epochs} epochs...")
-        start = time.time()
+            if start_epoch == 0:
+                print("Visualizing attention weights before training...")
+                # get attention weight visualization before any updates are made to the model
+                with torch.no_grad():
+                    model.eval()
+                    self.viz_model(0, model, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
-        for epoch in range(start_epoch, args.epochs):
-            # self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, pad_to_length=args.maxlen)
-            self.train_loader = dataloader.generate_loader(args, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
-            self.val_loader = dataloader.generate_loader(args, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
+            print(f"Training for {args.epochs} epochs...")
+            start = time.time()
 
-            # self.train_loader.create_batches()
-            self.train_epoch(compiled_model, epoch)
+            for epoch in range(start_epoch, args.epochs):
+                for n in range(args.n_files):
+                    # self.train_loader, self.val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, pad_to_length=args.maxlen)
+                    self.train_loader = dataloader.generate_loader(n, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
+                    self.val_loader = dataloader.generate_loader(0, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
 
-            # self.val_loader.create_batches()
-            val_loss_avg = self.validate_epoch(model, epoch)
+                    train_dataset = utils.GeneratorDataset(self.train_loader)
+                    train_sampler = DistributedSampler(train_dataset)
+                    self.train_loader = DataLoader(train_dataset, batch_size=1, sampler=self.sampler)
 
-            utils.save_checkpoint(epoch, model, optimizer, prefix=f"{run_dir}/{model_name_prefix}")
+                    val_dataset = utils.GeneratorDataset(self.val_loader)
+                    val_sampler = DistributedSampler(val_dataset)
+                    self.val_loader = DataLoader(val_dataset, batch_size=1, sampler=self.sampler)
 
-            if self.early_stopping is not None:
-                if self.early_stopping(val_loss_avg):
-                    print("Early stopping")
-                    utils.average_checkpoints(args.epochs, optimizer, run_dir, args.early_stop_num_latest_checkpoints_to_avg, model_name_prefix='step')
+                    # self.train_loader.create_batches()
+                    self.train_epoch(model, epoch)
 
-                    print(f"Training complete. Evaluating one last time...")
-                    self.val_loader.create_batches()
-                    self.validate_epoch(model, epoch)
-                    break
+                    # self.val_loader.create_batches()
+                    val_loss_avg = self.validate_epoch(model, epoch)
 
-        time_taken = time.time() - start
+                    utils.save_checkpoint(epoch, model, optimizer, prefix=run_dir)
 
-        print(f"Training complete. Averaging checkpoints...")
-        utils.average_checkpoints(args.epochs, optimizer, run_dir, model_name_prefix='step')
+                    if self.early_stopping is not None:
+                        if self.early_stopping(val_loss_avg):
+                            print("Early stopping")
+                            utils.average_checkpoints(args.epochs, optimizer, run_dir, args.early_stop_num_latest_checkpoints_to_avg, model_name_prefix='step')
 
-        print("Training complete. Scoring with sacrebleu...")
-        print(utils.sacrebleu_evaluate(args, run_dir, tokenizer, model, device=self.device, sacrebleu_in_python=True, test_loader=self.val_loader).score, time_taken, utils.count_parameters(model), self.val_loader)
+                            print(f"Training complete. Evaluating one last time...")
+                            self.val_loader.create_batches()
+                            self.validate_epoch(model, epoch)
+                            break
+
+            time_taken = time.time() - start
+
+            print(f"Training complete. Averaging checkpoints...")
+            utils.average_checkpoints(args.epochs, optimizer, run_dir, model_name_prefix='step')
+
+            print("Training complete. Scoring with sacrebleu...")
+            print(utils.sacrebleu_evaluate(args, run_dir, tokenizer, model, device=self.device, sacrebleu_in_python=True, test_loader=self.val_loader).score, time_taken, utils.count_parameters(model), self.val_loader)
+        finally:
+            self.cleanup()
 
     def forward_pass(self, epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model):
-        tgt_seqs = tgt_seqs[:, 1:] # remove bos, lang code tag serves as beginning of sequence
-        tgt_seq_lengths = tgt_seq_lengths - 1
-
         src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
         tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
 
@@ -234,8 +259,8 @@ class Trainer:
                 step_time.update(time.time() - start_step_time)
 
                 if self.steps % args.print_frequency == 0:
-                    print('Epoch {0}/{1}-----Batch {2}/{3}-----Step {4}/{5}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
-                          'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1,  self.train_loader.n_batches, self.steps, args.n_steps, step_time=step_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
+                    print('Epoch {0}/{1}-----Batch {2}-----Step {4}/{5}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----'
+                          'Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, self.steps, args.n_steps, step_time=step_time, total_losses=total_losses, early_stop_counter=self.early_stopping.counter if self.early_stopping is not None else 0, early_stop_patience=self.early_stopping.patience if self.early_stopping is not None else 0))
                     self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
                     self.evaluate(src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
                     self.evaluate(src='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
@@ -346,6 +371,8 @@ class Trainer:
         return buf
 
     def viz_model(self, step, model, src, tgt):
+        model = utils.sanitize_model(model)
+
         if not tgt.endswith('<eos>'):
             tgt += '<eos>'
 
@@ -417,4 +444,5 @@ class Trainer:
 
 if __name__ == "__main__":
     trainer = Trainer(args.device, args.dtype, summary_writer, early_stopping)
-    trainer.train()
+    
+    trainer.start_training()

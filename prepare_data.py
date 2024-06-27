@@ -518,6 +518,8 @@ if __name__ == '__main__':
     argparser.add_argument("--maxlen", type=int, default=160)
     argparser.add_argument("--vocab_size", type=int, default=32768)
 
+    argparser.add_argument("--n_files", type=int, default=1)
+
     args = argparser.parse_args()
 
     collate_data()

@@ -1,14 +1,12 @@
 from collections import OrderedDict
-from datasets import load_dataset
-from dataloader import SequenceLoader
+from modules.swiglu import SwiGLU
 from positional_encodings.torch_encodings import PositionalEncoding2D
 from rotary_embedding_torch import RotaryEmbedding
-from modules.swiglu import SwiGLU
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
 import argparse
 import codecs
-import glob
 import math
 import modules.transformer as transformer
 import os
@@ -18,75 +16,19 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
-import traceback
 import yaml
-import youtokentome
 
-VOCAB_SIZES = {
-    # 'afr': 8192,
-    # 'amh': 3072,
-    'cs': 3072,
-    'de': 8192,
-    'en': 16384,
-    'et': 2048,
-    'fi': 4096,
-    'fr': 6144,
-    # 'fuv': 3072,
-    'gu': 1024,
-    # 'hau': 4096,
-    'hi': 1024,
-    # 'ibo': 3072,
-    # 'ja': 12288,
-    # 'kam': 2048,
-    # 'kin': 4096,
-    'kk': 1024,
-    # 'lin': 4096,
-    'lt': 3072,
-    # 'lug': 2048,
-    # 'luo': 4096,
-    'lv': 1024,
-    # 'nso': 4096,
-    # 'nya': 4096,
-    # 'orm': 4096,
-    'ro': 1024,
-    'ru': 6144,
-    # 'sna': 4096,
-    # 'som': 2048,
-    # 'ssw': 2048,
-    # 'swh': 6144,
-    'tr': 1024,
-    # 'tsn': 4096,
-    # 'tso': 2048,
-    # 'umb': 2048,
-    'vi': 7168,
-    # 'wol': 3072,
-    # 'xho': 10240,
-    # 'yor': 10240,
-    # 'zh': 15360,
-    # 'zul': 2048,
-    'con': 8192
-}
+class GeneratorDataset(Dataset):
+    def __init__(self, generator, length):
+        self.generator = generator
+        self.length = length
 
-# first n tokens are reserved for the <lang> tags at the beginning of src and tgt sequences
-# from then on, each language's tokenizer handles the special tokens (pad, unk, bos, eos) on their own
-TOTAL_VOCAB_SIZE = len(VOCAB_SIZES) + sum(VOCAB_SIZES.values())
+    def __len__(self):
+        return self.length
 
-def get_language_tokenizer_offset(lang):
-    if lang.startswith("<") and lang.endswith(">"):
-        lang = lang[1:-1]
-
-    offset = len(VOCAB_SIZES)
-    for l, vocab_size in VOCAB_SIZES.items():
-        if l == lang:
-            return offset
-        offset += vocab_size
-    raise ValueError(f"Language {lang[:min(20, len(lang))]} not found in VOCAB_SIZES")
-
-def get_language_indicator_index(lang):
-    return list(VOCAB_SIZES.keys()).index(lang)
-
-def get_language_indicator_from_index(index):
-    return list(VOCAB_SIZES.keys())[index]
+    def __getitem__(self, idx):
+        # This might be inefficient for large datasets
+        return next(self.generator)
 
 def get_structured_data_paths(data_files):
     """
@@ -194,35 +136,6 @@ def get_positional_encoding(args):
         positional_encoding = RotaryEmbedding(dim=args.positional_encoding_dim)
     return positional_encoding
 
-def load_data(args, tokens_in_batch, tokenizer, pad_to_length=None):
-    print('Loading training data SequenceLoader...')
-    train_loader = SequenceLoader(
-        args,
-        src_tokenizer=tokenizer,
-        tgt_tokenizer=tokenizer,
-        data_folder=os.path.join('data'),
-        source_suffix="src",
-        target_suffix='tgt',
-        split=f"train",
-        tokens_in_batch=tokens_in_batch,
-        pad_to_length=pad_to_length
-    )
-
-    print('Loading validation data SequenceLoader...')
-    val_loader = SequenceLoader(
-        args,
-        src_tokenizer=tokenizer,
-        tgt_tokenizer=tokenizer,
-        data_folder=os.path.join('data'),
-        source_suffix="src",
-        target_suffix='tgt',
-        split=f"validation",
-        tokens_in_batch=tokens_in_batch,
-        pad_to_length=pad_to_length
-    )
-
-    return train_loader, val_loader
-
 def print_model(model):
     print(f"Model structure: \n {model}")
     print(f'The model has {count_parameters(model):,} total parameters')
@@ -246,6 +159,15 @@ def print_model(model):
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def sanitize_model(model):
+    if hasattr(model, '_orig_mod'):
+            model = model._orig_mod
+
+    if hasattr(model, 'module'):
+        model = model.module
+
+    return model
 
 def save_checkpoint(epoch, model, optimizer, prefix=''):
     """

@@ -4,6 +4,7 @@ from torch.profiler import profile, ProfilerActivity
 
 from tokenizers import Tokenizer
 
+import dataloader
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -30,7 +31,8 @@ if args.torch_compile_model:
 else:
     compiled_model = model
 
-train_loader, val_loader = utils.load_data(args, args.tokens_in_batch, tokenizer, 0, pad_to_length=args.maxlen)
+train_loader = dataloader.generate_loader(0, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
+val_loader = dataloader.generate_loader(0, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
 
 criterion = LabelSmoothedCE(args, eps=args.label_smoothing).to(args.device)
 

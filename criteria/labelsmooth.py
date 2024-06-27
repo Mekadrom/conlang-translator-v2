@@ -34,6 +34,7 @@ class LabelSmoothedCE(nn.Module):
         # print(f"targets = torch.{targets[0].cpu()}")
 
         # Remove pad-positions and flatten
+
         inputs, _, _, _ = pack_padded_sequence(
             input=inputs,
             lengths=lengths.cpu(),
