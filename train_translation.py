@@ -1,16 +1,13 @@
 from criteria.labelsmooth import LabelSmoothedCE
 from modules import transformer
 from prettytable import PrettyTable
-from tokenizers import Tokenizer
+from tokenizers import processors, Tokenizer
 from torch.cuda.amp import autocast, GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, IterableDataset
-from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import dataloader
-import glob
 import io
 import matplotlib.pyplot as plt
 import os
@@ -83,74 +80,71 @@ def viz_attn_weights(stack_name, layer_num, n_head, activation_weights, attendee
 def viz_model(model, tokenizer, summary_writer, src, tgt):
     model = utils.sanitize_model(model)
 
-    if not tgt.endswith('<eos>'):
-        tgt += '<eos>'
-
     with torch.no_grad():
         model.eval()
 
-        input_sequence = torch.LongTensor(tokenizer.encode(src, add_special_tokens=True).ids).unsqueeze(0).to(args.device)
-        input_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in input_sequence.squeeze(0)]
-        input_sequence_length = input_sequence.size(1)
+        src_seq = torch.LongTensor(tokenizer.encode(src, add_special_tokens=True).ids).unsqueeze(0).to(args.device)
+        src_token_strs = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in src_seq.squeeze(0)]
+        src_seq_len = src_seq.size(1)
 
         # pad input sequence to args.maxlen
         if args.use_infinite_attention or True:
-            input_sequence = torch.cat([input_sequence, torch.zeros([1, args.maxlen - input_sequence.size(1)], dtype=torch.long, device=input_sequence.device)], dim=1)
+            src_seq = torch.cat([src_seq, torch.zeros([1, args.maxlen - src_seq.size(1)], dtype=torch.long, device=src_seq.device)], dim=1)
 
-        target_sequence = torch.LongTensor(tokenizer.encode(tgt, add_special_tokens=True).ids).unsqueeze(0).to(args.device)
-        target_tokens = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=False)) for id in target_sequence.squeeze(0)]
-        target_sequence_length = target_sequence.size(1)
+        tgt_seq = torch.LongTensor(tokenizer.encode(tgt, add_special_tokens=True).ids).unsqueeze(0).to(args.device)
+        tgt_token_strs = [utils.clean_decoded_text(tokenizer.decode([id.item()], skip_special_tokens=True)) for id in tgt_seq.squeeze(0)]
+        tgt_seq_len = tgt_seq.size(1)
 
         # pad target sequence to args.maxlen
         if args.use_infinite_attention or True:
-            target_sequence = torch.cat([target_sequence, torch.zeros([1, args.maxlen - target_sequence.size(1)], dtype=torch.long, device=target_sequence.device)], dim=1)
+            tgt_seq = torch.cat([tgt_seq, torch.zeros([1, args.maxlen - tgt_seq.size(1)], dtype=torch.long, device=tgt_seq.device)], dim=1)
 
-        src_key_padding_mask = input_sequence == 0 # (N, pad_length)
-        tgt_key_padding_mask = target_sequence == 0 # (N, pad_length)
+        src_key_padding_mask = src_seq == 0 # (N, pad_length)
+        tgt_key_padding_mask = tgt_seq == 0 # (N, pad_length)
 
-        input_sequence = model.encoder.perform_embedding_transformation(input_sequence) # (N, pad_length, d_model)
-        input_sequence = model.encoder.apply_positional_embedding(input_sequence) # (N, pad_length, d_model)
+        src_seq = model.encoder.perform_embedding_transformation(src_seq) # (N, pad_length, d_model)
+        src_seq = model.encoder.apply_positional_embedding(src_seq) # (N, pad_length, d_model)
 
         for e, encoder_layer in enumerate(model.encoder.encoder_layers):
-            input_sequence, attention_weights = encoder_layer.self_attn(input_sequence, input_sequence, input_sequence, src_key_padding_mask)
+            src_seq, attention_weights = encoder_layer.self_attn(src_seq, src_seq, src_seq, src_key_padding_mask)
 
             for a, attention_weight_grid in enumerate(attention_weights):
                 attention_weight_grid = attention_weight_grid.cpu().contiguous()
 
                 # shape of attention_weights will be (1, n_heads, input_sequence_length, input_sequence_length) for self attention (like in encoder layers and beginning of each decoder layer)
                 for i in range(attention_weight_grid.size(1)):
-                    image_data = viz_attn_weights('Encoder-Self', e, i, attention_weight_grid[:, i, :input_sequence_length, :input_sequence_length].transpose(-2, -1).squeeze(0).cpu().detach().numpy(), input_tokens, input_tokens)
+                    image_data = viz_attn_weights('Encoder-Self', e, i, attention_weight_grid[:, i, :src_seq_len, :src_seq_len].transpose(-2, -1).squeeze(0).cpu().detach().numpy(), src_token_strs, src_token_strs)
                     summary_writer.add_image(f"Encoder Layer {e} Head {i} Self-Attn Weights for Segment {a}", plt.imread(image_data), global_step=steps, dataformats='HWC')
 
-            input_sequence, _ = encoder_layer.fcn(sequences=input_sequence) # (N, pad_length, d_model)
+            src_seq, _ = encoder_layer.fcn(sequences=src_seq) # (N, pad_length, d_model)
 
-        input_sequence = model.encoder.norm(input_sequence)
+        src_seq = model.encoder.norm(src_seq)
 
-        target_sequence = model.decoder.apply_embedding_transformation(target_sequence) # (N, pad_length, d_model)
-        target_sequence = model.decoder.apply_positional_embedding(target_sequence) # (N, pad_length, d_model)
+        tgt_seq = model.decoder.apply_embedding_transformation(tgt_seq) # (N, pad_length, d_model)
+        tgt_seq = model.decoder.apply_positional_embedding(tgt_seq) # (N, pad_length, d_model)
 
         for d, decoder_layer in enumerate(model.decoder.decoder_layers):
-            target_sequence, attention_weights = decoder_layer.self_attn(target_sequence, target_sequence, target_sequence, tgt_key_padding_mask) # (N, pad_length, d_model)
+            tgt_seq, attention_weights = decoder_layer.self_attn(tgt_seq, tgt_seq, tgt_seq, tgt_key_padding_mask) # (N, pad_length, d_model)
             
             for a, attention_weight_grid in enumerate(attention_weights):
                 attention_weight_grid = attention_weight_grid.cpu().detach().contiguous()
 
                 # shape of attention_weight_grid will be (1, n_heads, target_sequence_length, target_sequence_length) for self attention (like in encoder layers and beginning of each decoder layer)
                 for i in range(attention_weight_grid.size(1)):
-                    image_data = viz_attn_weights('Decoder-Self', d, i, attention_weight_grid[:, i, :target_sequence_length, :target_sequence_length].transpose(-2, -1).squeeze(0).numpy(), target_tokens, target_tokens)
+                    image_data = viz_attn_weights('Decoder-Self', d, i, attention_weight_grid[:, i, :tgt_seq_len, :tgt_seq_len].transpose(-2, -1).squeeze(0).numpy(), tgt_token_strs, tgt_token_strs)
                     summary_writer.add_image(f"Decoder Layer {d} Head {i} Self-Attn Weights for Segment {a}", plt.imread(image_data), global_step=steps, dataformats='HWC')
 
-            target_sequence, attention_weights = decoder_layer.cross_attn(target_sequence, input_sequence, input_sequence, src_key_padding_mask) # (N, pad_length, d_model)
+            tgt_seq, attention_weights = decoder_layer.cross_attn(tgt_seq, src_seq, src_seq, src_key_padding_mask) # (N, pad_length, d_model)
 
             for a, attention_weight_grid in enumerate(attention_weights):
                 attention_weight_grid = attention_weight_grid.cpu().detach().contiguous()
 
                 # shape of attention_weights will be (1, n_heads, target_sequence_length, input_sequence_length) for encoder-decoder attention
                 for i in range(attention_weight_grid.size(1)):
-                    image_data = viz_attn_weights('Decoder-Cross', d, i, attention_weight_grid[:, i, :target_sequence_length, :input_sequence_length].transpose(-2, -1).squeeze(0).numpy(), target_tokens, input_tokens)
+                    image_data = viz_attn_weights('Decoder-Cross', d, i, attention_weight_grid[:, i, :tgt_seq_len, :src_seq_len].transpose(-2, -1).squeeze(0).numpy(), tgt_token_strs, src_token_strs)
                     summary_writer.add_image(f"Decoder Layer {d} Head {i} Cross-Attn Weights for Segment {a}", plt.imread(image_data), global_step=steps, dataformats='HWC')
 
-            target_sequence, _ = decoder_layer.fcn(target_sequence) # (N, pad_length, d_model)
+            tgt_seq, _ = decoder_layer.fcn(tgt_seq) # (N, pad_length, d_model)
 
 def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, summary_writer, tokenizer, early_stopping=None):
     global steps
@@ -318,8 +312,26 @@ def evaluate(model, tokenizer, summary_writer, src, tgt, tgt_lang_code):
 
     best, _ = utils.beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device=args.device, beam_size=4, length_norm_coefficient=0.6)
 
-    debug_validate_table = PrettyTable(["Test Source", "Test Prediction", "Test Target"])
+    str_src = src
+    str_best = best
+    str_tgt = tgt
+
+    best = tokenizer.encode(best, add_special_tokens=True).ids
+    best_length = len(best)
+    best = tokenizer.decode(best, skip_special_tokens=False)
+
+    src = tokenizer.encode(src, add_special_tokens=True).ids
+    src_length = len(src)
+    src = tokenizer.decode(src, skip_special_tokens=False)
+
+    tgt = ' '.join([f"<{tgt_lang_code}>", tgt])
+    tgt = tokenizer.encode(tgt, add_special_tokens=True).ids
+    tgt_length = len(tgt)
+    tgt = tokenizer.decode(tgt, skip_special_tokens=False)
+
+    debug_validate_table = PrettyTable([f"Test Source {src_length}", f"Test Prediction {best_length}", f"Test Target {tgt_length}"])
     debug_validate_table.add_row([src, best, tgt])
+    debug_validate_table.add_row([str_src, str_best, str_tgt])
 
     console_size = os.get_terminal_size()
     debug_validate_table.max_width = (console_size.columns // 3) - 15
@@ -372,6 +384,13 @@ def train(rank, world_size):
     summary_writer = SummaryWriter(log_dir=run_dir)
 
     tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
+
+    tokenizer.post_processor = processors.TemplateProcessing(
+        single="$A <eos>",
+        special_tokens=[("<eos>", 3)],
+    )
+
+    tokenizer.save(os.path.join("tokenizers", "tokenizer_collated.json"))
 
     start_epoch, model, optimizer = load_model(args, rank, tokenizer)
 

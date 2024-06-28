@@ -1,5 +1,6 @@
 from datasets import load_dataset
 from tokenizers import Tokenizer
+from tokenizers.processors import TemplateProcessing
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 from tqdm import tqdm
@@ -443,6 +444,11 @@ def train_tokenizer(vocab_size):
         pre_tokenizers.Split(pattern=f"({special_pattern})", behavior="isolated"),
         pre_tokenizers.Metaspace(replacement="▁", add_prefix_space=True)
     ])
+
+    tokenizer.post_processor = TemplateProcessing(
+        single="$A <eos>",
+        special_tokens=[("<eos>", 3)],
+    )
 
     trainer = BpeTrainer(
         vocab_size=vocab_size,

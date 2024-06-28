@@ -18,6 +18,51 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
+VOCAB_SIZES = {
+    # 'afr': 8192,
+    # 'amh': 3072,
+    'cs': 3072,
+    'de': 8192,
+    'en': 16384,
+    'et': 2048,
+    'fi': 4096,
+    'fr': 6144,
+    # 'fuv': 3072,
+    'gu': 1024,
+    # 'hau': 4096,
+    'hi': 1024,
+    # 'ibo': 3072,
+    # 'ja': 12288,
+    # 'kam': 2048,
+    # 'kin': 4096,
+    'kk': 1024,
+    # 'lin': 4096,
+    'lt': 3072,
+    # 'lug': 2048,
+    # 'luo': 4096,
+    'lv': 1024,
+    # 'nso': 4096,
+    # 'nya': 4096,
+    # 'orm': 4096,
+    'ro': 1024,
+    'ru': 6144,
+    # 'sna': 4096,
+    # 'som': 2048,
+    # 'ssw': 2048,
+    # 'swh': 6144,
+    'tr': 1024,
+    # 'tsn': 4096,
+    # 'tso': 2048,
+    # 'umb': 2048,
+    'vi': 7168,
+    # 'wol': 3072,
+    # 'xho': 10240,
+    # 'yor': 10240,
+    # 'zh': 15360,
+    # 'zul': 2048,
+    'con': 8192
+}
+
 def get_structured_data_paths(data_files):
     """
     data structure of src_tgt_pairs:
@@ -257,7 +302,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
 
         # If the source sequence is a string, convert to a tensor of IDs
         if isinstance(src, str):
-            encoder_sequences = tokenizer.encode(src).ids
+            encoder_sequences = tokenizer.encode(src, add_special_tokens=True).ids # (source_sequence_length)
             encoder_sequences = torch.LongTensor(encoder_sequences).unsqueeze(0) # (1, source_sequence_length)
         else:
             encoder_sequences = src
@@ -271,7 +316,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
         encoder_sequences, gating_variances = model.encoder(encoder_sequences, src_key_padding_mask) # (1, source_sequence_length, d_model)
 
         # Our hypothesis to begin with is just <bos>
-        hypotheses = torch.LongTensor([[2, tokenizer.encode(f'<{tgt_lang_code}>').ids[0]]]).to(device) # (1, 1) (bos == 2)
+        hypotheses = torch.LongTensor([[tokenizer.encode(f'<{tgt_lang_code}>').ids[0]]]).to(device) # (1, 1) (bos == 2)
 
         # Tensor to store hypotheses' scores; now it's just 0
         hypotheses_scores = torch.zeros(1).to(device) # (1)
@@ -344,7 +389,7 @@ def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, be
 
         # Decode the hypotheses
         all_hypotheses = list()
-        decoded = [clean_decoded_text(tokenizer.decode(completed_hypothesis, skip_special_tokens=True)) for completed_hypothesis in completed_hypotheses]
+        decoded = [clean_decoded_text(tokenizer.decode(completed_hypothesis, skip_special_tokens=False)) for completed_hypothesis in completed_hypotheses]
         for i, h in enumerate(decoded):
             all_hypotheses.append({"hypothesis": h, "score": completed_hypotheses_scores[i]})
 

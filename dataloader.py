@@ -18,7 +18,7 @@ def get_generator(n_file_idx, tokenizer, data_folder, split, tokens_in_batch):
                 for src_line, tgt_line in zip(src_file, tgt_file):
                     src_seq = tokenizer.encode(src_line, add_special_tokens=True).ids
                     tgt_seq = tokenizer.encode(tgt_line, add_special_tokens=True).ids
-                    
+
                     src_length = len(src_seq)
                     tgt_length = len(tgt_seq)
                     
