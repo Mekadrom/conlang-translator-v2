@@ -166,10 +166,7 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
     start_step_time = time.time()
 
-    for i, batch in enumerate(tqdm(train_loader)):
-        if rank == 0:
-            print(f"Training batch {i}")
-            
+    for i, batch in enumerate(train_loader):
         if batch is None:
             break
 
@@ -233,7 +230,7 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
             if rank == 0:
                 if steps % args.print_frequency == 0:
-                    print('Epoch {0}/{1}-----Batch {2}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, step_time=step_time, total_losses=total_losses, early_stop_counter=early_stopping.counter if early_stopping is not None else 0, early_stop_patience=early_stopping.patience if early_stopping is not None else 0))
+                    print('\nEpoch {0}/{1}-----Batch {2}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, step_time=step_time, total_losses=total_losses, early_stop_counter=early_stopping.counter if early_stopping is not None else 0, early_stop_patience=early_stopping.patience if early_stopping is not None else 0))
                     evaluate(model, tokenizer, summary_writer, src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
                     evaluate(model, tokenizer, summary_writer, src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
                     evaluate(model, tokenizer, summary_writer, src='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
