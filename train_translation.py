@@ -3,7 +3,6 @@ from modules import transformer
 from prettytable import PrettyTable
 from tokenizers import processors, Tokenizer
 from torch.cuda.amp import autocast, GradScaler
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -12,6 +11,7 @@ import io
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
+import sys
 import time
 import torch
 import torch.distributed as dist
@@ -312,26 +312,8 @@ def evaluate(model, tokenizer, summary_writer, src, tgt, tgt_lang_code):
 
     best, _ = utils.beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device=args.device, beam_size=4, length_norm_coefficient=0.6)
 
-    str_src = src
-    str_best = best
-    str_tgt = tgt
-
-    best = tokenizer.encode(best, add_special_tokens=True).ids
-    best_length = len(best)
-    best = tokenizer.decode(best, skip_special_tokens=False)
-
-    src = tokenizer.encode(src, add_special_tokens=True).ids
-    src_length = len(src)
-    src = tokenizer.decode(src, skip_special_tokens=False)
-
-    tgt = ' '.join([f"<{tgt_lang_code}>", tgt])
-    tgt = tokenizer.encode(tgt, add_special_tokens=True).ids
-    tgt_length = len(tgt)
-    tgt = tokenizer.decode(tgt, skip_special_tokens=False)
-
-    debug_validate_table = PrettyTable([f"Test Source {src_length}", f"Test Prediction {best_length}", f"Test Target {tgt_length}"])
+    debug_validate_table = PrettyTable([f"Test Source", f"Test Prediction", f"Test Target"])
     debug_validate_table.add_row([src, best, tgt])
-    debug_validate_table.add_row([str_src, str_best, str_tgt])
 
     console_size = os.get_terminal_size()
     debug_validate_table.max_width = (console_size.columns // 3) - 15
@@ -346,6 +328,8 @@ def evaluate(model, tokenizer, summary_writer, src, tgt, tgt_lang_code):
 def load_model(args, rank, tokenizer):
     model = transformer.Transformer(args, tokenizer.get_vocab_size())
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), eps=args.epsilon)
+
+    utils.init_transformer_weights(args, model, tie_embeddings=args.tie_embeddings)
 
     start_epoch = 0
     if rank == 0:
@@ -365,7 +349,9 @@ def load_model(args, rank, tokenizer):
 
     model = model.to(rank)
 
-    model = DDP(model, device_ids=[rank])
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+
+    utils.print_model(model)
 
     return start_epoch, model, optimizer
 
@@ -402,7 +388,6 @@ def train(rank, world_size):
         early_stopping = None
 
     if rank == 0:
-        utils.print_model(model)
         print(f"Optimizer: {optimizer}")
         print(f"Criterion: {criterion}")
 
@@ -454,5 +439,7 @@ def train(rank, world_size):
         cleanup()
 
 if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,), nprocs=world_size, join=True)
