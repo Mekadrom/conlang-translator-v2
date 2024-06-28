@@ -106,7 +106,7 @@ class MultiHeadAttention(nn.Module):
 
             attention_weights = attention_weights.masked_fill_(key_padding_mask, -float('inf'))
 
-        if self.self_attn:
+        if self.self_attn and self.in_decoder:
             assert attention_weights.shape[-2] == attention_weights.shape[-1], f"self-attention weights are not square: {attention_weights.shape[-2]} != {attention_weights.shape[-1]}"
             try:
                 attention_weights = attention_weights.masked_fill_(self.causal_mask[:attention_weights.shape[-2], :attention_weights.shape[-1]] == 0, -float('inf'))
