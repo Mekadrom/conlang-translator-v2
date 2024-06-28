@@ -9,6 +9,7 @@ from tqdm import tqdm
 import dataloader
 import io
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import seaborn as sns
 import sys
@@ -17,6 +18,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import utils
 
@@ -30,40 +32,6 @@ if not os.path.exists(run_dir):
     os.makedirs(run_dir)
 
 steps = 0
-
-def forward_pass(epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model, scaler, criterion):
-    src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
-    tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
-
-    if scaler is not None:
-        with autocast():
-            predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
-    else:
-        predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
-
-    moe_diversity_loss = 0
-    encoder_moe_gating_variances = None
-    decoder_moe_gating_variances = None
-
-    if args.moe_diversity_loss_coefficient > 0 and epoch >= args.moe_diversity_inclusion_epoch:
-        encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
-        decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
-
-        moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * args.moe_diversity_loss_coefficient
-
-        encoder_moe_gating_variances = encoder_moe_gating_variances.item()
-        decoder_moe_gating_variances = decoder_moe_gating_variances.item()
-
-    # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
-    # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
-    # Therefore, pads start after (length - 1) positions
-    if scaler is not None:
-        with autocast():
-            translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs, lengths=tgt_seq_lengths)
-    else:
-        translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs, lengths=tgt_seq_lengths) # scalar
-
-    return translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances
 
 def viz_attn_weights(stack_name, layer_num, n_head, activation_weights, attendee_tokens, attending_tokens):
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -146,6 +114,65 @@ def viz_model(model, tokenizer, summary_writer, src, tgt):
 
             tgt_seq, _ = decoder_layer.fcn(tgt_seq) # (N, pad_length, d_model)
 
+def monitor_gradients_and_activations(model, step):
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            if np.isnan(grad_norm):
+                print(f"Step {step}: NaN gradient in {name}")
+            elif grad_norm > 1000:
+                print(f"Step {step}: Large gradient in {name}: {grad_norm}")
+        
+        if torch.isnan(param).any():
+            print(f"Step {step}: NaN parameter in {name}")
+
+def forward_pass(rank, epoch, src_seqs, tgt_seqs, tgt_seq_lengths, model, scaler, criterion, tokenizer):
+    src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
+    tgt_key_padding_mask = tgt_seqs[:, :-1] == 0 # (N, max_target_sequence_pad_length_this_batch)
+
+    if scaler is not None:
+        with autocast():
+            predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs[:, :-1], src_key_padding_mask, tgt_key_padding_mask)
+    else:
+        predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs[:, :-1], src_key_padding_mask, tgt_key_padding_mask)
+
+    if args.debug and rank == 0:
+        print(f"src: {tokenizer.decode(src_seqs[0].tolist(), skip_special_tokens=False)}")
+        print(f"predicted_sequences.max: {predicted_sequences[0].max()}")
+        print(f"predicted_sequences.min: {predicted_sequences[0].min()}")
+        print(f"predicted_sequences: {torch.argmax(F.softmax(predicted_sequences[0], dim=-1), dim=-1)}")
+        print(f"predicted_sequences.shape: {predicted_sequences.shape}")
+        print(f"src_seqs.shape: {src_seqs.shape}")
+        print(f"src_seqs: {src_seqs[0]}")
+        print(f"tgt_seqs.shape: {tgt_seqs.shape}")
+        print(f"tgt_seqs: {tgt_seqs[0]}")
+        print(f"tgt_seqs[:, 1:]: {tgt_seqs[0, 1:]}")
+        print(f"tgt_seq_lengths: {tgt_seq_lengths[0]}")
+
+    moe_diversity_loss = 0
+    encoder_moe_gating_variances = None
+    decoder_moe_gating_variances = None
+
+    if args.moe_diversity_loss_coefficient > 0 and epoch >= args.moe_diversity_inclusion_epoch:
+        encoder_moe_gating_variances = torch.stack(encoder_moe_gating_variances).std(dim=0).mean()
+        decoder_moe_gating_variances = torch.stack(decoder_moe_gating_variances).std(dim=0).mean()
+
+        moe_diversity_loss = ((encoder_moe_gating_variances + decoder_moe_gating_variances) / 2) * args.moe_diversity_loss_coefficient
+
+        encoder_moe_gating_variances = encoder_moe_gating_variances.item()
+        decoder_moe_gating_variances = decoder_moe_gating_variances.item()
+
+    # Note: If the target sequence is "<bos> w1 w2 ... wN <eos> <PAD> <PAD> <PAD> <PAD> ..."
+    # we should consider only "w1 w2 ... wN <eos>" as <BOS> is not predicted
+    # Therefore, pads start after (length - 1) positions
+    if scaler is not None:
+        with autocast():
+            translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1)
+    else:
+        translation_loss = criterion(inputs=predicted_sequences, targets=tgt_seqs[:, 1:], lengths=tgt_seq_lengths - 1)
+
+    return translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances
+
 def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, summary_writer, tokenizer, early_stopping=None):
     global steps
 
@@ -173,7 +200,7 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
         tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
 
-        translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model, scaler, criterion)
+        translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(rank, epoch, src_seqs, tgt_seqs, tgt_seq_lengths, model, scaler, criterion, tokenizer)
         loss = translation_loss + moe_diversity_loss
         translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
         total_losses.update(loss.item(), tgt_seq_length_sum)
@@ -183,7 +210,7 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
             decoder_moe_gating_variance_losses.update(decoder_moe_gating_variances, 1)
 
         # run again with src and tgt switched
-        translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(epoch, tgt_seqs, src_seqs, tgt_seq_lengths, src_seq_lengths, model, scaler, criterion)
+        translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(rank, epoch, tgt_seqs, src_seqs, src_seq_lengths, model, scaler, criterion, tokenizer)
         loss = loss + translation_loss + moe_diversity_loss
         translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
         total_losses.update(loss.item(), tgt_seq_length_sum)
@@ -205,6 +232,9 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
         # Update model (i.e. perform a training step) only after gradients are accumulated from batches_per_step batches
         if i % args.batches_per_step == 0:
             if args.clip_grad_norm is not None and args.clip_grad_norm > 0:
+                if args.debug and rank == 0:
+                    monitor_gradients_and_activations(model, steps)
+
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
             
             if scaler is not None:
@@ -224,10 +254,14 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
             if rank == 0:
                 if steps % args.print_frequency == 0:
-                    print('\nEpoch {0}/{1}-----Batch {2}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, step_time=step_time, total_losses=total_losses, early_stop_counter=early_stopping.counter if early_stopping is not None else 0, early_stop_patience=early_stopping.patience if early_stopping is not None else 0))
-                    evaluate(model, tokenizer, summary_writer, src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
-                    evaluate(model, tokenizer, summary_writer, src='<en>Anyone who retains the ability to recognise beauty will never become old.', tgt='Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
-                    evaluate(model, tokenizer, summary_writer, src='<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
+                    print('\nEpoch {0}/{1}-----Batch {2}-----Steps {3}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, steps, step_time=step_time, total_losses=total_losses, early_stop_counter=early_stopping.counter if early_stopping is not None else 0, early_stop_patience=early_stopping.patience if early_stopping is not None else 0))
+
+                    evaluate(model, tokenizer, summary_writer, src='<en> Anyone who retains the ability to recognise beauty will never become old.', tgt='<de> Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt_lang_code='de')
+                    evaluate(model, tokenizer, summary_writer, src='<en> Anyone who retains the ability to recognise beauty will never become old.', tgt='<fr> Quiconque conserve la capacité de reconnaître la beauté ne vieillira jamais.', tgt_lang_code='fr')
+                    evaluate(model, tokenizer, summary_writer, src='<de> Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.', tgt='<vi> Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt_lang_code='vi')
+                    evaluate(model, tokenizer, summary_writer, src='<vi> Người nào giữ được khả năng nhận biết cái đẹp sẽ không bao giờ già.', tgt='<en> Anyone who retains the ability to recognise beauty will never become old.', tgt_lang_code='en')
+
+                    model.train()
 
                 summary_writer.add_scalar('Translation Training Loss', translation_losses.avg, steps)
                 summary_writer.add_scalar('Training Loss', total_losses.avg, steps)
@@ -263,9 +297,9 @@ def validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_wr
 
             if scaler is not None:
                 with autocast():
-                    predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+                    predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs[:, :-1], src_key_padding_mask, tgt_key_padding_mask)
             else:
-                predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs, src_key_padding_mask, tgt_key_padding_mask)
+                predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs[:, :-1], src_key_padding_mask, tgt_key_padding_mask)
 
             moe_diversity_loss = 0
             encoder_moe_gating_variances = None
@@ -303,13 +337,14 @@ def validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_wr
             summary_writer.add_scalar('Validation Loss', losses.avg, steps)
             print("\nValidation loss: %.3f\n\n" % losses.avg)
 
-            viz_model(model, tokenizer, summary_writer, "<en>Anyone who retains the ability to recognise beauty will never become old.", "<de>Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
+            viz_model(model, tokenizer, summary_writer, "<en> Anyone who retains the ability to recognise beauty will never become old.", "<de> Wer die Fähigkeit behält, Schönheit zu erkennen, wird niemals alt.")
 
         return losses.avg
 
 def evaluate(model, tokenizer, summary_writer, src, tgt, tgt_lang_code):
     global steps
 
+    model.eval()
     best, _ = utils.beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device=args.device, beam_size=4, length_norm_coefficient=0.6)
 
     debug_validate_table = PrettyTable([f"Test Source", f"Test Prediction", f"Test Target"])
@@ -341,15 +376,15 @@ def load_model(args, rank, tokenizer):
 
     start_epoch = utils.load_checkpoint(model, optimizer, os.path.join(run_dir, 'transformer_checkpoint.pth.tar'))
 
+    model = model.to(rank)
+
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+
     if args.torch_compile_model:
         torch.set_float32_matmul_precision('high')
         torch._dynamo.config.cache_size_limit = int(args.dynamo_cache_size_limit)
 
         model = torch.compile(model, mode="reduce-overhead", dynamic=True)
-
-    model = model.to(rank)
-
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     utils.print_model(model)
 

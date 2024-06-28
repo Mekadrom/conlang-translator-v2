@@ -76,4 +76,4 @@ early_stop_num_latest_checkpoints_to_avg: 3
 n_files: 2
 epochs: 3
 debug: false
-tie_embeddings: true
+tie_embeddings: false

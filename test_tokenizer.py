@@ -11,12 +11,12 @@ print("one" in tokenizer.get_vocab())
 while True:
     str_in = input("Enter a string: ")
 
-    ids = tokenizer.encode(str_in).ids
+    ids = tokenizer.encode(str_in, add_special_tokens=True).ids
 
     print(type(ids))
     print(ids)
 
-    decoded = tokenizer.decode(ids, skip_special_tokens=True)
+    decoded = tokenizer.decode(ids, skip_special_tokens=False)
 
     print(type(decoded))
     print(decoded)

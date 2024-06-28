@@ -11,10 +11,10 @@ def get_generator(n_file_idx, tokenizer, data_folder, split, tokens_in_batch):
         src_file_path = os.path.join(data_folder, f"{split}_{n_file_idx}.src")
         tgt_file_path = os.path.join(data_folder, f"{split}_{n_file_idx}.tgt")
 
-        while True:
-            batch = []
-            total_tokens = 0
-            with codecs.open(src_file_path, "r", encoding="utf-8") as src_file, codecs.open(tgt_file_path, "r", encoding="utf-8") as tgt_file:
+        with codecs.open(src_file_path, "r", encoding="utf-8") as src_file, codecs.open(tgt_file_path, "r", encoding="utf-8") as tgt_file:
+            while True:
+                batch = []
+                total_tokens = 0
                 for src_line, tgt_line in zip(src_file, tgt_file):
                     src_seq = tokenizer.encode(src_line, add_special_tokens=True).ids
                     tgt_seq = tokenizer.encode(tgt_line, add_special_tokens=True).ids

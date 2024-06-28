@@ -194,13 +194,15 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def sanitize_model(model):
-    if hasattr(model, '_orig_mod'):
+    tries = 0
+    while not isinstance(model, transformer.Transformer):
+        if hasattr(model, '_orig_mod'):
             model = model._orig_mod
+        if hasattr(model, 'module'):
+            model = model.module
 
-    if hasattr(model, 'module'):
-        model = model.module
-
-    assert type(model) == transformer.Transformer, f"Model must be a transformer model. Got: {type(model)}"
+        if tries > 3:
+            raise Exception("Could not find the model in the model's attributes")
 
     return model
 
@@ -554,6 +556,8 @@ def get_args():
     if hasattr(args, 'tokens_in_batch'):
         args.__setattr__('batches_per_step', args.target_tokens_per_batch // args.tokens_in_batch)
     args.__setattr__('lr', get_lr(step=1, d_model=args.d_model, warmup_steps=args.warmup_steps))
+
+    print(f"Using learning rate: {args.lr}")
 
     torch.set_printoptions(profile='full')
 

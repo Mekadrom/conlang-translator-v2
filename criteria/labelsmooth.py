@@ -5,16 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class LabelSmoothedCE(nn.Module):
-    """
-    Cross Entropy loss with label-smoothing as a form of regularization.
-
-    See "Rethinking the Inception Architecture for Computer Vision", https://arxiv.org/abs/1512.00567
-    """
-
     def __init__(self, args, device, eps=0.1):
-        """
-        :param eps: smoothing co-efficient
-        """
         super(LabelSmoothedCE, self).__init__()
 
         self.args = args
@@ -22,18 +13,6 @@ class LabelSmoothedCE(nn.Module):
         self.eps = eps
 
     def forward(self, inputs, targets, lengths):
-        """
-        Forward prop.
-
-        :param inputs: decoded target language sequences, a tensor of size (N, pad_length, vocab_size)
-        :param targets: gold target language sequences, a tensor of size (N, pad_length)
-        :param lengths: true lengths of these sequences, to be able to ignore pads, a tensor of size (N)
-        :return: mean label-smoothed cross-entropy loss, a scalar
-        """
-
-        # print(f"inputs = torch.{torch.argmax(F.softmax(inputs, dim=-1)[0].cpu(), dim=-1)}")
-        # print(f"targets = torch.{targets[0].cpu()}")
-
         # Remove pad-positions and flatten
 
         inputs, _, _, _ = pack_padded_sequence(
