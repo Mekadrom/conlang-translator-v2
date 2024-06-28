@@ -261,7 +261,7 @@ class SparseMoE(nn.Module):
             expert_input = flat_sequences[expert_mask.any(dim=1)]
             expert_output = self.expert_weights[i](expert_input)
 
-            output[expert_mask.any(dim=1)] += expert_output
+            output[expert_mask.any(dim=1)] = output[expert_mask.any(dim=1)] + expert_output
 
         # record export choices to self.gating_variances for loss calculation to encourage diversity
         if self.training:

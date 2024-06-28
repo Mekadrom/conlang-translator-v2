@@ -1,52 +1,45 @@
-from itertools import groupby
-from random import shuffle
 from torch.nn.utils.rnn import pad_sequence
-from tqdm import tqdm
 
 import codecs
 import os
 import torch
 
-def generate_loader(n_file_idx, tokenizer, data_folder, split, tokens_in_batch, pad_to_length=None):
-    print(f"Loading {split}_{n_file_idx}...")
+def get_generator(n_file_idx, tokenizer, data_folder, split, tokens_in_batch):
+    def load_data(rank):
+        print(f"Loading {split}_{n_file_idx} on rank {rank}...")
 
-    def load_data(suffix):
-        with codecs.open(os.path.join(data_folder, f"{split}_{n_file_idx}.{suffix}"), "r", encoding="utf-8") as f:
-            for line in f:
-                tokens = tokenizer.encode(line, add_special_tokens=True).ids
-                yield torch.LongTensor(tokens), torch.LongTensor([len(tokens)])
+        src_file_path = os.path.join(data_folder, f"{split}_{n_file_idx}.src")
+        tgt_file_path = os.path.join(data_folder, f"{split}_{n_file_idx}.tgt")
 
-    src_data = load_data("src")
-    tgt_data = load_data("tgt")
+        while True:
+            batch = []
+            total_tokens = 0
+            with codecs.open(src_file_path, "r", encoding="utf-8") as src_file, codecs.open(tgt_file_path, "r", encoding="utf-8") as tgt_file:
+                for src_line, tgt_line in zip(src_file, tgt_file):
+                    src_seq = tokenizer.encode(src_line, add_special_tokens=True).ids
+                    tgt_seq = tokenizer.encode(tgt_line, add_special_tokens=True).ids
+                    
+                    src_length = len(src_seq)
+                    tgt_length = len(tgt_seq)
+                    
+                    batch.append((torch.LongTensor(src_seq), torch.LongTensor(tgt_seq), 
+                                  torch.LongTensor([src_length]), torch.LongTensor([tgt_length])))
+                    
+                    total_tokens += tgt_length
+                    
+                    if total_tokens >= tokens_in_batch:
+                        break
+                
+                if len(batch) == 0:
+                    return  # End of file reached
+                
+                src_seqs, tgt_seqs, src_lengths, tgt_lengths = zip(*batch)
+                
+                src_seqs = pad_sequence(src_seqs, batch_first=True, padding_value=0)
+                src_lengths = torch.cat(src_lengths)
+                tgt_seqs = pad_sequence(tgt_seqs, batch_first=True, padding_value=0)
+                tgt_lengths = torch.cat(tgt_lengths)
+                
+                yield src_seqs, tgt_seqs, src_lengths, tgt_lengths
 
-    def make_next_batch():
-        batch = []
-        total_tokens = 0
-        while total_tokens < tokens_in_batch:
-            try:
-                src, src_lengths = next(src_data)
-                tgt, tgt_lengths = next(tgt_data)
-            except StopIteration:
-                break
-            batch.append((src, tgt, src_lengths, tgt_lengths))
-
-            example_length = tgt_lengths.item()
-
-            # batching metric is # of tokens in target sequences
-            total_tokens += example_length
-
-            if len(batch) == 0:
-                return None
-        
-        src, tgt, src_lengths, tgt_lengths, = zip(*batch)
-
-        # takes a list of id sequences and returns padded Tensor
-        src = pad_sequence(sequences=src, batch_first=True, padding_value=0)
-        src_lengths = torch.stack(src_lengths).squeeze(-1)
-
-        tgt = pad_sequence(sequences=tgt, batch_first=True, padding_value=0)
-        tgt_lengths = torch.stack(tgt_lengths).squeeze(-1)
-
-        return src, tgt, src_lengths, tgt_lengths
-
-    yield from iter(make_next_batch, None)
+    return load_data

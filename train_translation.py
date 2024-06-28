@@ -4,7 +4,7 @@ from prettytable import PrettyTable
 from tokenizers import Tokenizer
 from torch.cuda.amp import autocast, GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -166,13 +166,21 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
     start_step_time = time.time()
 
-    for i, (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths) in tqdm(enumerate(train_loader)):
-        tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
+    for i, batch in enumerate(tqdm(train_loader)):
+        if rank == 0:
+            print(f"Training batch {i}")
+            
+        if batch is None:
+            break
 
-        src_seqs = src_seqs.to(rank) # (N, max_source_sequence_pad_length_this_batch)
-        tgt_seqs = tgt_seqs.to(rank) # (N, max_target_sequence_pad_length_this_batch)
-        src_seq_lengths = src_seq_lengths.to(rank) # (N)
-        tgt_seq_lengths = tgt_seq_lengths.to(rank) # (N)
+        src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
+
+        src_seqs = src_seqs.to(rank)
+        tgt_seqs = tgt_seqs.to(rank)
+        src_seq_lengths = src_seq_lengths.to(rank)
+        tgt_seq_lengths = tgt_seq_lengths.to(rank)
+
+        tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
 
         translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(epoch, src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths, model, scaler, criterion)
         loss = translation_loss + moe_diversity_loss
@@ -185,7 +193,7 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
         # run again with src and tgt switched
         translation_loss, moe_diversity_loss, encoder_moe_gating_variances, decoder_moe_gating_variances = forward_pass(epoch, tgt_seqs, src_seqs, tgt_seq_lengths, src_seq_lengths, model, scaler, criterion)
-        loss += translation_loss + moe_diversity_loss
+        loss = loss + translation_loss + moe_diversity_loss
         translation_losses.update(translation_loss.item(), tgt_seq_length_sum)
         total_losses.update(loss.item(), tgt_seq_length_sum)
 
@@ -246,14 +254,19 @@ def validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_wr
 
     with torch.no_grad():
         losses = utils.AverageMeter()
-        for (src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths) in tqdm(val_loader):
+        for batch in tqdm(val_loader):
+            if batch is None:
+                break
+
+            src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
+
+            src_seqs = src_seqs.to(rank)
+            tgt_seqs = tgt_seqs.to(rank)
+            src_seq_lengths = src_seq_lengths.to(rank)
+            tgt_seq_lengths = tgt_seq_lengths.to(rank)
+
             tgt_seq_length_sum = (tgt_seq_lengths - 1).sum().item()
 
-            src_seqs = src_seqs.to(rank) # (N, max_source_sequence_pad_length_this_batch)
-            tgt_seqs = tgt_seqs.to(rank) # (N, max_target_sequence_pad_length_this_batch)
-            src_seq_lengths = src_seq_lengths.to(rank) # (N)
-            tgt_seq_lengths = tgt_seq_lengths.to(rank) # (N)
-            
             src_key_padding_mask = src_seqs == 0 # (N, max_source_sequence_pad_length_this_batch)
             tgt_key_padding_mask = tgt_seqs == 0 # (N, max_target_sequence_pad_length_this_batch)
 
@@ -335,15 +348,15 @@ def load_model(args, rank, tokenizer):
 
     start_epoch = utils.load_checkpoint(model, optimizer, os.path.join(run_dir, 'transformer_checkpoint.pth.tar'))
 
-    model = model.to(rank)
-
     if args.torch_compile_model:
         torch.set_float32_matmul_precision('high')
         torch._dynamo.config.cache_size_limit = int(args.dynamo_cache_size_limit)
 
         model = torch.compile(model, mode="reduce-overhead", dynamic=True)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+    model = model.to(rank)
+
+    model = DDP(model, device_ids=[rank])
 
     return start_epoch, model, optimizer
 
@@ -365,7 +378,7 @@ def train(rank, world_size):
 
     start_epoch, model, optimizer = load_model(args, rank, tokenizer)
 
-    criterion = LabelSmoothedCE(args, eps=args.label_smoothing).to(args.device)
+    criterion = LabelSmoothedCE(args, rank, eps=args.label_smoothing).to(args.device)
 
     if args.early_stop:
         early_stopping = utils.EarlyStopping(patience=args.early_stop_patience, min_delta=args.early_stop_min_delta)
@@ -395,16 +408,8 @@ def train(rank, world_size):
 
         for epoch in range(start_epoch, args.epochs):
             for n in tqdm(range(args.n_files), desc=f"Epoch {epoch + 1}/{args.epochs}"):
-                train_loader = dataloader.generate_loader(n, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
-                val_loader = dataloader.generate_loader(0, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
-
-                train_dataset = utils.GeneratorDataset(train_loader, length=len(list(train_loader)))
-                train_sampler = DistributedSampler(train_dataset)
-                train_loader = DataLoader(train_dataset, batch_size=1, sampler=train_sampler)
-
-                val_dataset = utils.GeneratorDataset(val_loader, length=len(list(val_loader)))
-                val_sampler = DistributedSampler(val_dataset)
-                val_loader = DataLoader(val_dataset, batch_size=1, sampler=val_sampler)
+                train_loader = dataloader.get_generator(n, tokenizer, 'data', 'train', args.tokens_in_batch)(rank)
+                val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch)(rank)
 
                 train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, summary_writer, tokenizer, early_stopping)
 
@@ -425,10 +430,7 @@ def train(rank, world_size):
             print(f"Training complete. Averaging checkpoints...")
             utils.average_checkpoints(args.epochs, optimizer, run_dir, model_name_prefix='step')
 
-            test_loader = dataloader.generate_loader(0, tokenizer, 'data', 'validation', args.tokens_in_batch, device=rank, pad_to_length=args.maxlen)
-            test_dataset = utils.GeneratorDataset(test_loader, length=len(list(test_loader)))
-            test_sampler = DistributedSampler(test_dataset)
-            test_loader = DataLoader(test_dataset, batch_size=1, sampler=test_sampler)
+            test_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch, rank)
 
             print("Training complete. Scoring with sacrebleu...")
             print(utils.sacrebleu_evaluate(args, run_dir, tokenizer, model, device=args.device, sacrebleu_in_python=True, test_loader=test_loader).score, time_taken, utils.count_parameters(model))

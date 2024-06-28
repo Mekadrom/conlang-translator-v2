@@ -31,8 +31,8 @@ if args.torch_compile_model:
 else:
     compiled_model = model
 
-train_loader = dataloader.generate_loader(0, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
-val_loader = dataloader.generate_loader(0, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
+train_loader = dataloader.get_generator(0, tokenizer, 'data', 'train', args.tokens_in_batch, pad_to_length=args.maxlen)
+val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch, pad_to_length=args.maxlen)
 
 criterion = LabelSmoothedCE(args, eps=args.label_smoothing).to(args.device)
 

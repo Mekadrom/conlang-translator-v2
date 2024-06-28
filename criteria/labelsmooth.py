@@ -11,13 +11,14 @@ class LabelSmoothedCE(nn.Module):
     See "Rethinking the Inception Architecture for Computer Vision", https://arxiv.org/abs/1512.00567
     """
 
-    def __init__(self, args, eps=0.1):
+    def __init__(self, args, device, eps=0.1):
         """
         :param eps: smoothing co-efficient
         """
         super(LabelSmoothedCE, self).__init__()
 
         self.args = args
+        self.device = device
         self.eps = eps
 
     def forward(self, inputs, targets, lengths):
@@ -54,7 +55,7 @@ class LabelSmoothedCE(nn.Module):
             return loss
         else:
             # "Smoothed" one-hot vectors for the gold sequences
-            target_vector = torch.zeros_like(inputs).scatter(dim=1, index=targets.unsqueeze(1), value=1.).to(self.args.device) # (sum(lengths), n_classes), one-hot
+            target_vector = torch.zeros_like(inputs).scatter(dim=1, index=targets.unsqueeze(1), value=1.).to(self.device) # (sum(lengths), n_classes), one-hot
             target_vector = target_vector * (1. - self.eps) + self.eps / target_vector.size(1) # (sum(lengths), n_classes), "smoothed" one-hot
 
             # Compute smoothed cross-entropy loss

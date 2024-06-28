@@ -18,17 +18,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
-class GeneratorDataset(Dataset):
-    def __init__(self, generator, length):
-        self.generator = generator
-
-    def __len__(self):
-        return length
-
-    def __getitem__(self, idx):
-        # This might be inefficient for large datasets
-        return next(self.generator)
-
 def get_structured_data_paths(data_files):
     """
     data structure of src_tgt_pairs:
@@ -249,6 +238,8 @@ def clean_decoded_text(decoded_text):
     return ''.join(cleaned_tokens)
 
 def beam_search_translate(args, src, model, tokenizer, tgt_lang_code, device, beam_size=4, length_norm_coefficient=0.6):
+    model = sanitize_model(model)
+
     """
     Translates a source language sequence to the target language, with beam search decoding.
 
@@ -385,7 +376,7 @@ def average_checkpoints(epoch, optimizer, source_folder, num_latest_checkpoints=
             if param_name not in averaged_params:
                 averaged_params[param_name] = checkpoint_params[param_name].clone() * 1 / len(checkpoint_names)
             else:
-                averaged_params[param_name] += checkpoint_params[param_name] * 1 / len(checkpoint_names)
+                averaged_params[param_name] = averaged_params[param_name] + checkpoint_params[param_name] * 1 / len(checkpoint_names)
 
     # Use one of the checkpoints as a surrogate to load the averaged parameters into
     averaged_checkpoint = torch.load(os.path.join(source_folder, checkpoint_names[0]))['model']
@@ -409,9 +400,14 @@ def sacrebleu_evaluate(args, run_dir, tokenizer, model, device, sacrebleu_in_pyt
     with torch.no_grad():
         hypotheses = list()
         references = list()
-        for i, (source_sequence, target_sequence, source_sequence_length, target_sequence_length) in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
+        for i, batch in enumerate(tqdm(test_loader, total=test_loader.n_batches)):
+            if batch is None:
+                break
+
+            source_sequence, target_sequence, source_sequence_length, target_sequence_length = batch
+
             hypotheses.append(beam_search_translate(args, src=source_sequence, tokenizer=tokenizer, device=device, model=model, beam_size=4, length_norm_coefficient=0.6)[0])
-            references.extend(tokenizer.decode_all(target_sequence.tolist(), ignore_ids=[0, 2, 3]))
+            references.extend([tokenizer.decode(tgt, ignore_ids=[0, 2, 3]) for tgt in target_sequence.tolist()])
 
         if sacrebleu_in_python:
             print("\n13a tokenization, cased:\n")
@@ -516,7 +512,7 @@ def get_args():
 
     torch.set_printoptions(profile='full')
 
-    torch.autograd.set_detect_anomaly(args.detect_nans)
+    torch.autograd.set_detect_anomaly(bool(args.detect_nans))
     cudnn.benchmark = bool(args.cudnn_benchmark)
 
     return args, unk
