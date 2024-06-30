@@ -406,8 +406,6 @@ def train(rank, world_size):
 
     summary_writer = SummaryWriter(log_dir=run_dir)
 
-    summary_writer.add_scalar('Learning Rate', args.lr, 0)
-
     tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
     tokenizer.post_processor = processors.TemplateProcessing(
