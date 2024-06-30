@@ -18,11 +18,8 @@ def split_split(split, n_files):
         src_data = src_file.readlines()
         tgt_data = tgt_file.readlines()
 
-    shutil.move(src_datafile + '.bak', src_datafile + '.bak.bak')
-    shutil.move(tgt_datafile + '.bak', tgt_datafile + '.bak.bak')
-
-    shutil.move(src_datafile, src_datafile + '.bak')
-    shutil.move(tgt_datafile, tgt_datafile + '.bak')
+    shutil.move(src_datafile, src_datafile + '.split.bak')
+    shutil.move(tgt_datafile, tgt_datafile + '.split.bak')
 
     total_data_len = len(src_data)
 

@@ -408,11 +408,6 @@ def train(rank, world_size):
 
     tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
-    tokenizer.post_processor = processors.TemplateProcessing(
-        single="$A <eos>",
-        special_tokens=[("<eos>", 3)],
-    )
-
     tokenizer.save(os.path.join("tokenizers", "tokenizer_collated.json"))
 
     start_epoch, model, optimizer = load_model(args, rank, tokenizer)

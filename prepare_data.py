@@ -418,10 +418,6 @@ def collate_dataset(split):
                         if tgt_valid:
                             src_collated_file.write(src_line + '\n')
                             tgt_collated_file.write(tgt_line + '\n')
-                    #     else:
-                    #         print(f"Skipping invalid string: {tgt_line}")
-                    # else:
-                    #     print(f"Skipping invalid string: {src_line}")
 
 def collate_data():
     collate_dataset('train')
@@ -471,7 +467,7 @@ def train_tokenizer(vocab_size):
 
     return tokenizer
 
-def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxlen):
+def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxlen, max_length_ratio):
     src_datafiles = sorted(src_datafiles)
     tgt_datafiles = sorted(tgt_datafiles)
 
@@ -484,8 +480,8 @@ def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxle
             src_data = src_file.readlines()
             tgt_data = tgt_file.readlines()
 
-        shutil.move(src_datafile, src_datafile + '.bak')
-        shutil.move(tgt_datafile, tgt_datafile + '.bak')
+        shutil.move(src_datafile, src_datafile + '.tok.bak')
+        shutil.move(tgt_datafile, tgt_datafile + '.tok.bak')
 
         pre_src_data_len = len(src_data)
         pre_tgt_data_len = len(tgt_data)
@@ -508,7 +504,7 @@ def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxle
                     min_token_len = min(src_token_len, tgt_token_len)
                     max_token_len = max(src_token_len, tgt_token_len)
 
-                    if max_token_len <= maxlen and min_token_len >= minlen:
+                    if max_token_len <= maxlen and min_token_len >= minlen and (1.0 / max_length_ratio) <= tgt_token_len / src_token_len <= max_length_ratio:
                         src_file.write(f"{src_line}")
                         tgt_file.write(f"{tgt_line}")
                         continue
@@ -522,6 +518,7 @@ if __name__ == '__main__':
 
     argparser.add_argument("--minlen", type=int, default=3)
     argparser.add_argument("--maxlen", type=int, default=160)
+    argparser.add_argument('--max_length_ratio', type=float, default=1.5)
     argparser.add_argument("--vocab_size", type=int, default=32768)
 
     argparser.add_argument("--n_files", type=int, default=1)
@@ -543,5 +540,6 @@ if __name__ == '__main__':
         ['data/train.src', 'data/validation.src'],
         ['data/train.tgt', 'data/validation.tgt'],
         args.minlen,
-        args.maxlen
+        args.maxlen,
+        args.max_length_ratio
     )
