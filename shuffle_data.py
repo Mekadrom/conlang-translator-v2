@@ -20,23 +20,25 @@ def shuffle_file_pair(src_datafile, tgt_datafile, sort):
         tgt_data = list(tgt_data)
 
     with open(src_datafile, 'a') as src_file, open(tgt_datafile, 'a') as tgt_file:
-        with tqdm(total=len(src_data), desc=f"Shuffling {src_datafile} and {tgt_datafile}...") as pbar:
-            while len(src_data) > 0:
-                if sort:
-                    data_idx = 0
-                else:
+        if sort:
+            for src_line, tgt_line in tqdm(zip(src_data, tgt_data), desc=f"Writing sorted {src_datafile} and {tgt_datafile}..."):
+                src_file.write(src_line)
+                tgt_file.write(tgt_line)
+        else:
+            with tqdm(total=len(src_data), desc=f"Shuffling {src_datafile} and {tgt_datafile}...") as pbar:
+                while len(src_data) > 0:
                     data_idx = random.randint(0, len(src_data) - 1)
 
-                src_file.write(src_data.pop(data_idx))
-                tgt_file.write(tgt_data.pop(data_idx))
+                    src_file.write(src_data.pop(data_idx))
+                    tgt_file.write(tgt_data.pop(data_idx))
 
-                pbar.update(1)
+                    pbar.update(1)
 
 def shuffle(sort):
     src_files = glob.glob("data/train_*.src")
     tgt_files = glob.glob("data/train_*.tgt")
 
-    for src_file, tgt_file in tqdm(zip(src_files, tgt_files), ):
+    for src_file, tgt_file in tqdm(zip(sorted(src_files), sorted(tgt_files)), ):
         shuffle_file_pair(src_file, tgt_file, sort)
 
 if __name__ == '__main__':
