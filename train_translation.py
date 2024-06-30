@@ -247,7 +247,9 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
             steps += 1 # steps is a counter for the number of times the model has been updated via backprop
 
-            utils.change_lr(optimizer, new_lr=utils.get_lr(steps, args.d_model, args.warmup_steps))
+            new_lr = utils.get_lr(steps, args.d_model, args.warmup_steps)
+            summary_writer.add_scalar('Learning Rate', new_lr, steps)
+            utils.change_lr(optimizer, new_lr=new_lr)
 
             step_time.update(time.time() - start_step_time)
             start_step_time = time.time()
@@ -403,6 +405,8 @@ def train(rank, world_size):
     setup(rank, world_size)
 
     summary_writer = SummaryWriter(log_dir=run_dir)
+
+    summary_writer.add_scalar('Learning Rate', args.lr, 0)
 
     tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 

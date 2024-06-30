@@ -8,7 +8,7 @@ use_infinite_attention: false
 use_moe: false
 n_encoder_layers: 6
 n_decoder_layers: 6
-dropout: 0.15
+dropout: 0.125
 
 use_amp: false
 dtype: float32
@@ -21,4 +21,19 @@ encoder_param_sharing_type: none
 decoder_param_sharing_type: none
 m_encoder_independent_layers: 0
 m_decoder_independent_layers: 0
-activation_function: relu
+activation_function: swiglu
+
+tokens_in_batch: 1000
+target_tokens_per_batch: 25000
+n_steps: 100000
+warmup_steps: 8000
+beta1: 0.9
+beta2: 0.98
+epsilon: 1.e-9
+label_smoothing: 0.1
+clip_grad_norm: 1.0
+
+n_files: 2
+epochs: 6
+debug: false
+tie_embeddings: false
