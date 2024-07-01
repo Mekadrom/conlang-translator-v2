@@ -15,7 +15,7 @@ def shuffle_file_pair(src_datafile, tgt_datafile, sort):
 
     if sort:
         # sort by length of tgt_data
-        src_data, tgt_data = zip(*sorted(zip(src_data, tgt_data), key=lambda x: len(x[1])))
+        src_data, tgt_data = zip(*sorted(zip(src_data, tgt_data), key=lambda x: len(x[1]), reverse=True))
         src_data = list(src_data)
         tgt_data = list(tgt_data)
 
