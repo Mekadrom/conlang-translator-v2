@@ -193,6 +193,12 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
         src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
 
+        if args.debug and rank == 0:
+            print(f"src_seqs: {src_seqs.shape}")
+            print(f"tgt_seqs: {tgt_seqs.shape}")
+            print(f"src_seq_lengths: {src_seq_lengths.shape}")
+            print(f"tgt_seq_lengths: {tgt_seq_lengths.shape}")
+
         src_seqs = src_seqs.to(rank)
         tgt_seqs = tgt_seqs.to(rank)
         src_seq_lengths = src_seq_lengths.to(rank)
@@ -408,8 +414,6 @@ def train(rank, world_size):
 
     tokenizer = Tokenizer.from_file("tokenizers/tokenizer_collated.json")
 
-    tokenizer.save(os.path.join("tokenizers", "tokenizer_collated.json"))
-
     start_epoch, model, optimizer = load_model(args, rank, tokenizer)
 
     criterion = LabelSmoothedCE(args, rank, eps=args.label_smoothing).to(args.device)
@@ -423,7 +427,7 @@ def train(rank, world_size):
         print(f"Optimizer: {optimizer}")
         print(f"Criterion: {criterion}")
 
-    if 'use_amp' in args and args.use_amp:
+    if 'use_amp' in args and args.use_amp:  
         scaler = GradScaler()
     else:
         scaler = None

@@ -39,7 +39,14 @@ allowed_ranges = [
     (0x0900, 0x097F),  # Devanagari (Hindi)
 ]
 
+BLACKLISTED_CHARS = [
+    '/',
+    '\\'
+]
+
 all_valid_bytes = set(itertools.chain.from_iterable(range(start, end + 1) for start, end in allowed_ranges))
+
+[all_valid_bytes.remove(ord(c)) for c in BLACKLISTED_CHARS]
 
 def is_valid_byte(byte):
     return byte in all_valid_bytes
@@ -49,7 +56,7 @@ def is_valid_string(input_string):
     normalized_string = ''.join(c for c in unicodedata.normalize('NFD', input_string) if unicodedata.category(c) != 'Mn')
 
     # Check if all characters in the normalized string are in the allowed ranges
-    return all(is_valid_byte(ord(char)) for char in normalized_string)
+    return all(is_valid_byte(ord(char)) for char in normalized_string) and not '----' in input_string and not '....' in input_string and not '##' in input_string and not '__' in input_string
 
 def download_dataset(path, src_lang, tgt_lang, name=None, manual_split=False, collation_fn=None):
     os.makedirs('downloaded', exist_ok=True)
@@ -459,7 +466,7 @@ def train_tokenizer(vocab_size):
         for data_file in ['data/train.src', 'data/train.tgt']:
             with open(data_file, 'r') as f:
                 for line in f:
-                    yield re.sub(pattern, '', line)
+                    yield re.sub(pattern, '', line).strip()
 
     tokenizer.train_from_iterator(data(), trainer)
 

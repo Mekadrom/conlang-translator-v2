@@ -33,7 +33,7 @@ epsilon: 1.e-9
 label_smoothing: 0.1
 clip_grad_norm: 1.0
 
-n_files: 2
-epochs: 6
+n_files: 1
+epochs: 3
 debug: false
 tie_embeddings: false
