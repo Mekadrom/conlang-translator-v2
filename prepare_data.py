@@ -504,7 +504,7 @@ def prune_by_token_length(tokenizer, src_datafiles, tgt_datafiles, minlen, maxle
                     min_token_len = min(src_token_len, tgt_token_len)
                     max_token_len = max(src_token_len, tgt_token_len)
 
-                    if max_token_len <= maxlen and min_token_len >= minlen and (1.0 / max_length_ratio) <= tgt_token_len / src_token_len <= max_length_ratio:
+                    if max_token_len < maxlen and min_token_len > minlen and (1.0 / max_length_ratio) <= tgt_token_len / src_token_len <= max_length_ratio:
                         src_file.write(f"{src_line}")
                         tgt_file.write(f"{tgt_line}")
                         continue
@@ -517,17 +517,24 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
 
     argparser.add_argument("--minlen", type=int, default=3)
-    argparser.add_argument("--maxlen", type=int, default=160)
+    argparser.add_argument("--maxlen", type=int, default=150)
     argparser.add_argument('--max_length_ratio', type=float, default=1.5)
     argparser.add_argument("--vocab_size", type=int, default=32768)
+    argparser.add_argument("--skip_collate", action="store_true")
+    argparser.add_argument("--skip_train", action="store_true")
+    argparser.add_argument("--skip_prune", action="store_true")
 
     argparser.add_argument("--n_files", type=int, default=1)
 
     args = argparser.parse_args()
 
-    collate_data()
+    if not args.skip_collate:
+        collate_data()
 
-    tokenizer = train_tokenizer(args.vocab_size)
+    if not args.skip_train:
+        tokenizer = train_tokenizer(args.vocab_size)
+    else:
+        tokenizer = Tokenizer.from_file(os.path.join("tokenizers", "tokenizer_collated.json"))
 
     # test tokenizer
     ids = tokenizer.encode("<en> Anyone who retains the ability to recognize beauty will never grow old.").ids
@@ -535,11 +542,18 @@ if __name__ == '__main__':
     print([tokenizer.id_to_token(id) for id in ids])
     print(tokenizer.decode(ids))
 
-    prune_by_token_length(
-        tokenizer,
-        ['data/train.src', 'data/validation.src'],
-        ['data/train.tgt', 'data/validation.tgt'],
-        args.minlen,
-        args.maxlen,
-        args.max_length_ratio
-    )
+    ids = tokenizer.encode("<ru> A").ids
+    print(ids)
+    print(len(ids))
+    print([tokenizer.id_to_token(id) for id in ids])
+    print(tokenizer.decode(ids))
+
+    if not args.skip_prune:
+        prune_by_token_length(
+            tokenizer,
+            sorted(glob.glob('data/train*src') + glob.glob('data/validation*src')),
+            sorted(glob.glob('data/train*tgt') + glob.glob('data/validation*tgt')),
+            args.minlen,
+            args.maxlen,
+            args.max_length_ratio
+        )

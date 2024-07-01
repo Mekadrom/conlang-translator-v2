@@ -19,7 +19,7 @@ norm_eps: 0.00001
 use_amp: false
 dtype: float32
 
-maxlen: 160
+maxlen: 150
 
 init_weights_from: glorot_uniform
 init_weights_gain: 1.0
