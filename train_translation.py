@@ -136,7 +136,8 @@ def forward_pass(rank, epoch, src_seqs, tgt_seqs, tgt_seq_lengths, model, scaler
     else:
         predicted_sequences, encoder_moe_gating_variances, decoder_moe_gating_variances = model(src_seqs, tgt_seqs[:, :-1], src_key_padding_mask, tgt_key_padding_mask)
 
-    if args.debug and rank == 0:
+    # if args.debug and rank == 0:
+    if args.debug:
         print(f"src: {tokenizer.decode(src_seqs[0].tolist(), skip_special_tokens=False)}")
         print(f"predicted_sequences.max: {predicted_sequences[0].max()}")
         print(f"predicted_sequences.min: {predicted_sequences[0].min()}")
@@ -193,7 +194,8 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
 
         src_seqs, tgt_seqs, src_seq_lengths, tgt_seq_lengths = batch
 
-        if args.debug and rank == 0:
+        # if args.debug and rank == 0:
+        if args.debug:
             print(f"src_seqs: {src_seqs.shape}")
             print(f"tgt_seqs: {tgt_seqs.shape}")
             print(f"src_seq_lengths: {src_seq_lengths.shape}")
@@ -238,7 +240,8 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
         # Update model (i.e. perform a training step) only after gradients are accumulated from batches_per_step batches
         if i % args.batches_per_step == 0:
             if args.clip_grad_norm is not None and args.clip_grad_norm > 0:
-                if args.debug and rank == 0:
+                # if args.debug and rank == 0:
+                if args.debug:
                     monitor_gradients_and_activations(model, steps)
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -260,7 +263,8 @@ def train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, 
             step_time.update(time.time() - start_step_time)
             start_step_time = time.time()
 
-            if rank == 0:
+            # if rank == 0:
+            if True:
                 if steps % args.print_frequency == 0:
                     print('\nEpoch {0}/{1}-----Batch {2}-----Steps {3}-----Step Time {step_time.val:.3f} ({step_time.avg:.3f})-----Loss {total_losses.val:.4f} ({total_losses.avg:.4f})-----Early Stopping Counter: {early_stop_counter}/{early_stop_patience}'.format(epoch + 1, args.epochs, i + 1, steps, step_time=step_time, total_losses=total_losses, early_stop_counter=early_stopping.counter if early_stopping is not None else 0, early_stop_patience=early_stopping.patience if early_stopping is not None else 0))
 
@@ -341,7 +345,8 @@ def validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_wr
 
             losses.update(loss.item(), tgt_seq_length_sum)
 
-        if rank == 0:
+        # if rank == 0:
+        if True:
             summary_writer.add_scalar('Validation Loss', losses.avg, steps)
             print("\nValidation loss: %.3f\n\n" % losses.avg)
 
@@ -375,40 +380,43 @@ def load_model(args, rank, tokenizer):
     utils.init_transformer_weights(args, model, tie_embeddings=args.tie_embeddings)
 
     start_epoch = 0
-    if rank == 0:
+    # if rank == 0:
+    if True:
         if os.path.exists(os.path.join(run_dir, 'transformer_checkpoint.pth.tar')):
             start_epoch = utils.load_checkpoint(model, optimizer, os.path.join(run_dir, 'transformer_checkpoint.pth.tar'))
         utils.save_checkpoint(start_epoch, model, optimizer, f"runs/{args.run_name}/")
 
-    dist.barrier()
+    # dist.barrier()
 
     start_epoch = utils.load_checkpoint(model, optimizer, os.path.join(run_dir, 'transformer_checkpoint.pth.tar'))
 
     model = model.to(rank)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+    # model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     if args.torch_compile_model:
         torch.set_float32_matmul_precision('high')
         torch._dynamo.config.cache_size_limit = int(args.dynamo_cache_size_limit)
 
-        model = torch.compile(model, mode="reduce-overhead", dynamic=True)
+        # model = torch.compile(model, mode="reduce-overhead", dynamic=True)
+        model = torch.compile(model, dynamic=True)
 
     utils.print_model(model)
 
     return start_epoch, model, optimizer
 
-def setup(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'  # You can use any free port
+# def setup(rank, world_size):
+#     os.environ['MASTER_ADDR'] = 'localhost'
+#     os.environ['MASTER_PORT'] = '12355'  # You can use any free port
 
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+#     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-def cleanup():
-    dist.destroy_process_group()
+# def cleanup():
+#     dist.destroy_process_group()
 
-def train(rank, world_size):
-    setup(rank, world_size)
+# def train(rank, world_size):
+def train(rank):
+    # setup(rank, world_size)
 
     summary_writer = SummaryWriter(log_dir=run_dir)
 
@@ -423,7 +431,8 @@ def train(rank, world_size):
     else:
         early_stopping = None
 
-    if rank == 0:
+    # if rank == 0:
+    if True:
         print(f"Optimizer: {optimizer}")
         print(f"Criterion: {criterion}")
 
@@ -444,17 +453,25 @@ def train(rank, world_size):
         start = time.time()
 
         for epoch in range(start_epoch, args.epochs):
-            for n in tqdm(range(args.n_files), desc=f"Epoch {epoch + 1}/{args.epochs}"):
-                train_loader = dataloader.get_generator(n, tokenizer, 'data', 'train', args.tokens_in_batch)(rank)
-                val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch)(rank)
+            for n in tqdm(range(args.n_files - (world_size - 1)), desc=f"Epoch {epoch + 1}/{args.epochs}"):
+                # train_loader = dataloader.get_generator(n, tokenizer, 'data', 'train', args.tokens_in_batch)(rank)
+                # val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch)(rank)
+
+                data_idx = n + rank
+
+                train_loader = dataloader.SequenceLoader(args, tokenizer, tokenizer, 'data', f"train_{data_idx}.src", f"train_{data_idx}.tgt", args.tokens_in_batch, for_training=True)
+                train_loader.create_batches()
 
                 train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, summary_writer, tokenizer, early_stopping)
 
-                val_loss_avg = validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_writer, tokenizer)
+                # if rank == 0:
+                if True:
+                    val_loader = dataloader.SequenceLoader(args, tokenizer, tokenizer, 'data', 'validation_0.src', 'validation_0.tgt', args.tokens_in_batch, for_training=False)
+                    val_loader.create_batches()
+                    val_loss_avg = validate_epoch(rank, model, epoch, val_loader, scaler, criterion, summary_writer, tokenizer)
 
-                utils.save_checkpoint(epoch, model, optimizer, prefix=run_dir)
+                    utils.save_checkpoint(epoch, model, optimizer, prefix=run_dir)
 
-                if rank == 0:
                     if early_stopping is not None:
                         if early_stopping(val_loss_avg):
                             print("Early stopping")
@@ -463,7 +480,8 @@ def train(rank, world_size):
 
         time_taken = time.time() - start
 
-        if rank == 0:
+        # if rank == 0:
+        if True:
             print(f"Training complete. Averaging checkpoints...")
             utils.average_checkpoints(args.epochs, optimizer, run_dir, model_name_prefix='step')
 
@@ -472,10 +490,13 @@ def train(rank, world_size):
             print("Training complete. Scoring with sacrebleu...")
             print(utils.sacrebleu_evaluate(args, run_dir, tokenizer, model, device=args.device, sacrebleu_in_python=True, test_loader=test_loader).score, time_taken, utils.count_parameters(model))
     finally:
-        cleanup()
+        # cleanup()
+        pass
 
 if __name__ == "__main__":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    # sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-    world_size = torch.cuda.device_count()
-    mp.spawn(train, args=(world_size,), nprocs=world_size, join=True)
+    # world_size = torch.cuda.device_count()
+    # mp.spawn(train, args=(world_size,), nprocs=world_size, join=True)
+
+    train(args.device)
