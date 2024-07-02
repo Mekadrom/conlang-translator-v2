@@ -73,7 +73,7 @@ early_stop_patience: 3
 early_stop_min_delta: 0.0
 early_stop_num_latest_checkpoints_to_avg: 3
 
-n_files: 2
+n_files: 12
 epochs: 3
 debug: false
 tie_embeddings: false

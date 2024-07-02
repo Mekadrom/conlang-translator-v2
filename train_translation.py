@@ -445,8 +445,11 @@ def train(rank, world_size):
 
         for epoch in range(start_epoch, args.epochs):
             for n in tqdm(range(args.n_files), desc=f"Epoch {epoch + 1}/{args.epochs}"):
-                train_loader = dataloader.get_generator(n, tokenizer, 'data', 'train', args.tokens_in_batch)(rank)
-                val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch)(rank)
+                # train_loader = dataloader.get_generator(n, tokenizer, 'data', 'train', args.tokens_in_batch)(rank)
+                # val_loader = dataloader.get_generator(0, tokenizer, 'data', 'validation', args.tokens_in_batch)(rank)
+
+                train_loader = dataloader.SequenceLoader(args, tokenizer, tokenizer, 'data', f"train_{n}.src", f"train_{n}.tgt", args.tokens_in_batch, for_training=True)
+                val_loader = dataloader.SequenceLoader(args, tokenizer, tokenizer, 'data', 'validation_0.src', 'validation_0.tgt', args.tokens_in_batch)
 
                 train_epoch(rank, model, epoch, train_loader, scaler, criterion, optimizer, summary_writer, tokenizer, early_stopping)
 
